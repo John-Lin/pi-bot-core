@@ -1,0 +1,28 @@
+{
+  "name": "pi-bot-tools",
+  "version": "0.1.0",
+  "description": "Shared agent tools for pi-mono based bots (ported from pi-mono/packages/mom)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sandbox": "./src/sandbox.ts",
+    "./tools": "./src/tools/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/diff": "^7.0.2",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-agent-core": "^0.68.0",
+    "@mariozechner/pi-ai": "^0.68.0"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0",
+    "diff": "^8.0.2"
+  }
+}
