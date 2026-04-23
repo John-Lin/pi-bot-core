@@ -62,6 +62,7 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 			if (countResult.code !== 0) {
 				throw new Error(countResult.stderr || `Failed to read file: ${path}`);
 			}
+			// wc -l counts newlines, not lines, so add 1 for files without a trailing newline.
 			const totalFileLines = Number.parseInt(countResult.stdout.trim(), 10) + 1;
 
 			const startLine = offset ? Math.max(1, offset) : 1;
@@ -95,6 +96,7 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 			let details: ReadToolDetails | undefined;
 
 			if (truncation.firstLineExceedsLimit) {
+				// First line at this offset alone exceeds the byte limit; tell the model to fall back to bash.
 				const firstLineSize = formatSize(Buffer.byteLength(selectedContent.split("\n")[0] ?? "", "utf-8"));
 				outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
 				details = { truncation };
