@@ -27,6 +27,11 @@ import type { ScheduleEventType } from "./tools/schedule.js";
 /** Common shape every scheduled event must satisfy. Routing fields live in TEvent. */
 export interface ScheduledEventCommon {
 	type: ScheduleEventType;
+	/**
+	 * Synthetic user message. Note: when delivered via {@link FiredEvent} the
+	 * dispatcher receives a prefixed form (`[EVENT:name:type:schedule] ...`),
+	 * not this raw value.
+	 */
 	text: string;
 	/** Required for type='one-shot'. ISO 8601. */
 	at?: string;
@@ -39,11 +44,17 @@ export interface ScheduledEventCommon {
 /**
  * What the dispatcher receives. The original parsed event fields are spread
  * verbatim, so `event.channelId` / `event.chatId` / `event.threadId` etc.
- * remain accessible. `text` is replaced with the `[EVENT:...]`-prefixed form.
+ * remain accessible.
  */
 export type FiredEvent<TEvent extends ScheduledEventCommon> = TEvent & {
 	/** JSON filename, used in the [EVENT:...] prefix. */
 	name: string;
+	/**
+	 * **Replaces** the original `text` from `TEvent` with the prefixed form
+	 * `[EVENT:name:type:schedule] <original text>`. Dispatchers that need the
+	 * raw user message must strip the prefix themselves.
+	 */
+	text: string;
 };
 
 export type EventDispatcher<TEvent extends ScheduledEventCommon> = (

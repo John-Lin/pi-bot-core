@@ -1,7 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import type { TSchema } from "typebox";
+import type { Static, TSchema } from "typebox";
 
 export type ScheduleEventType = "immediate" | "one-shot" | "periodic";
 
@@ -94,7 +94,7 @@ export interface CreateScheduleToolConfig<TParams extends TSchema> {
 	 * persisted JSON (e.g. `{ channelId: args.channelId }` or
 	 * `{ chatId: args.chatId, threadId: args.threadId }`).
 	 */
-	buildRouting: (args: any) => Record<string, unknown>;
+	buildRouting: (args: Static<TParams>) => Record<string, unknown>;
 }
 
 /**
