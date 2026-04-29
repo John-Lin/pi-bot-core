@@ -18,6 +18,13 @@ export {
 	truncateHead,
 	truncateTail,
 } from "./truncate.js";
+export {
+	buildEventPayload,
+	type CommonScheduleArgs,
+	type CreateScheduleToolConfig,
+	createScheduleTool,
+	type ScheduleEventType,
+} from "./schedule.js";
 
 /**
  * Create the default set of tools (read, bash, edit, write) bound to a given Executor.
