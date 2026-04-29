@@ -45,13 +45,19 @@ function touchFile(path: string): void {
 	if (!existsSync(path)) writeFileSync(path, "");
 }
 
-/** Concatenate global + per-chat MEMORY.md contents. Returns a placeholder when both are empty. */
+/**
+ * Concatenate global + per-chat MEMORY.md contents. Returns a placeholder when both are empty.
+ *
+ * Wraps each file's content in an XML-style fence so user-authored Markdown headings inside
+ * MEMORY.md cannot collide with the surrounding system-prompt heading hierarchy and appear as
+ * top-level system sections to the LLM.
+ */
 export function readMemory(paths: ChatPaths): string {
 	const parts: string[] = [];
 	const globalMem = tryRead(join(paths.workspace, "MEMORY.md"));
-	if (globalMem) parts.push(`### Global Workspace Memory\n${globalMem}`);
+	if (globalMem) parts.push(`<global_memory>\n${globalMem}\n</global_memory>`);
 	const chatMem = tryRead(paths.memoryFile);
-	if (chatMem) parts.push(`### Chat-Specific Memory\n${chatMem}`);
+	if (chatMem) parts.push(`<chat_memory>\n${chatMem}\n</chat_memory>`);
 	return parts.length === 0 ? "(no working memory yet)" : parts.join("\n\n");
 }
 

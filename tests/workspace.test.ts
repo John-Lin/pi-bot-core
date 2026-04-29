@@ -40,14 +40,24 @@ describe("readMemory", () => {
 		expect(readMemory(paths)).toBe("(no working memory yet)");
 	});
 
-	test("concatenates global + chat memory with section headers", () => {
+	test("wraps global + chat memory in XML fences", () => {
 		const paths = ensureChatDir(ws, 42);
 		writeFileSync(join(ws, "MEMORY.md"), "global-fact");
 		writeFileSync(paths.memoryFile, "chat-fact");
 		const mem = readMemory(paths);
-		expect(mem).toContain("### Global Workspace Memory");
+		expect(mem).toContain("<global_memory>");
 		expect(mem).toContain("global-fact");
-		expect(mem).toContain("### Chat-Specific Memory");
+		expect(mem).toContain("</global_memory>");
+		expect(mem).toContain("<chat_memory>");
 		expect(mem).toContain("chat-fact");
+		expect(mem).toContain("</chat_memory>");
+	});
+
+	test("XML fence isolates user-authored Markdown headings", () => {
+		const paths = ensureChatDir(ws, 42);
+		writeFileSync(paths.memoryFile, "## Reply rules\nbe concise");
+		const mem = readMemory(paths);
+		// User content stays inside the fence; no bare h2/h3 can collide with system-prompt sections.
+		expect(mem).toContain("<chat_memory>\n## Reply rules\nbe concise\n</chat_memory>");
 	});
 });
