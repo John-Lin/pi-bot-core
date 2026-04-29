@@ -1,6 +1,6 @@
-# pi-bot-tools
+# pi-bot-core
 
-Shared agent tools for pi-mono based bots (e.g. `pi-discord-bot`, `pi-telegram-bot`).
+Shared runtime and building blocks for pi-mono based bots (e.g. `pi-discord-bot`, `pi-telegram-bot`).
 
 Ported from [`pi-mono/packages/mom`](https://github.com/badlogic/pi-mono/tree/main/packages/mom) with the `Executor` abstraction so the same tools work on host or inside a Docker container without tool changes.
 
@@ -23,7 +23,7 @@ All tools are `AgentTool` instances from `@mariozechner/pi-agent-core` so they d
 ### Host mode
 
 ```ts
-import { HostExecutor, createBotTools } from "pi-bot-tools";
+import { HostExecutor, createBotTools } from "pi-bot-core";
 
 const executor = new HostExecutor();
 const tools = createBotTools(executor);
@@ -32,7 +32,7 @@ const tools = createBotTools(executor);
 ### Docker sandbox mode
 
 ```ts
-import { DockerExecutor, createBotTools } from "pi-bot-tools";
+import { DockerExecutor, createBotTools } from "pi-bot-core";
 
 const executor = new DockerExecutor("pi-sandbox");
 const tools = createBotTools(executor);
@@ -42,7 +42,7 @@ const tools = createBotTools(executor);
 ### From a CLI flag
 
 ```ts
-import { parseSandboxArg, validateSandbox, createExecutor, createBotTools } from "pi-bot-tools";
+import { parseSandboxArg, validateSandbox, createExecutor, createBotTools } from "pi-bot-core";
 
 // e.g. --sandbox=host  or  --sandbox=docker:pi-sandbox
 const config = parseSandboxArg(process.env.SANDBOX ?? "host");
@@ -53,7 +53,7 @@ const tools = createBotTools(createExecutor(config));
 ### Pick tools individually
 
 ```ts
-import { HostExecutor, createBashTool, createReadTool } from "pi-bot-tools";
+import { HostExecutor, createBashTool, createReadTool } from "pi-bot-core";
 
 const executor = new HostExecutor();
 const tools = [createBashTool(executor), createReadTool(executor)];

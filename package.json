@@ -1,7 +1,7 @@
 {
-  "name": "pi-bot-tools",
+  "name": "pi-bot-core",
   "version": "0.1.0",
-  "description": "Shared agent tools for pi-mono based bots (ported from pi-mono/packages/mom)",
+  "description": "Shared runtime and building blocks for pi-mono based bots (executor + tools, workspace, events scheduler)",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
