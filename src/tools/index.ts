@@ -5,6 +5,11 @@ import { createEditTool } from "./edit.js";
 import { createReadTool } from "./read.js";
 import { createWriteTool } from "./write.js";
 
+export {
+	type AttachToolHandle,
+	type AttachUploader,
+	createAttachTool,
+} from "./attach.js";
 export { createBashTool, type BashToolDetails } from "./bash.js";
 export { createEditTool, type EditToolDetails } from "./edit.js";
 export { createReadTool, type ReadToolDetails } from "./read.js";
