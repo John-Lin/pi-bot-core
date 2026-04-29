@@ -11,7 +11,8 @@
     "./fs-watch": "./src/fs-watch.ts",
     "./workspace": "./src/workspace.ts",
     "./events": "./src/events.ts",
-    "./log": "./src/log.ts"
+    "./log": "./src/log.ts",
+    "./download-queue": "./src/download-queue.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
