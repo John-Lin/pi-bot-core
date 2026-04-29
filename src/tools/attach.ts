@@ -1,5 +1,5 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { basename } from "path";
+import { basename, extname } from "path";
 import { Type } from "typebox";
 
 /**
@@ -30,7 +30,12 @@ export interface AttachToolHandle {
 const attachSchema = Type.Object({
 	label: Type.String({ description: "Brief description of what you're sharing (shown to user)" }),
 	path: Type.String({ description: "Path to the file to attach" }),
-	title: Type.Optional(Type.String({ description: "Title for the file (defaults to filename)" })),
+	title: Type.Optional(
+		Type.String({
+			description:
+				"Optional filename override. Must include the file extension (e.g. 'report.pdf', 'memory.md'); the extension drives how the platform renders or downloads the file. Defaults to the basename of `path`.",
+		}),
+	),
 });
 
 /**
@@ -77,7 +82,7 @@ export function createAttachTool(): AttachToolHandle {
 				throw new Error(`attach: path must be absolute, got: ${path}`);
 			}
 
-			const fileName = title || basename(path);
+			const fileName = resolveFileName(path, title);
 
 			await uploader(path, { label, fileName });
 
@@ -94,4 +99,20 @@ export function createAttachTool(): AttachToolHandle {
 			uploader = fn;
 		},
 	};
+}
+
+/**
+ * Pick the upload filename. When the LLM supplies `title`, use it; if it forgot
+ * the extension and `path` has one, splice the path's extension on so the
+ * platform (Discord, Telegram) still renders/downloads the file as the right
+ * type. Without this, an LLM that interprets `title` as a human-readable
+ * caption (e.g. `"memory"` for `MEMORY.md`) ships an extension-less blob.
+ *
+ * Exported for unit testing.
+ */
+export function resolveFileName(path: string, title?: string): string {
+	if (!title) return basename(path);
+	if (extname(title)) return title;
+	const pathExt = extname(path);
+	return pathExt ? `${title}${pathExt}` : title;
 }

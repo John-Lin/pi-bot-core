@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createAttachTool } from "../src/tools/attach.js";
+import { createAttachTool, resolveFileName } from "../src/tools/attach.js";
 
 describe("createAttachTool", () => {
 	test("exposes tool with correct identifier and schema keys", () => {
@@ -95,6 +95,23 @@ describe("createAttachTool", () => {
 		expect(calls).toEqual(["/Users/me/data/42/chart.png"]);
 	});
 
+	test("splices path extension onto extension-less title", async () => {
+		const { tool, setUploader } = createAttachTool();
+		let receivedFileName: string | undefined;
+		setUploader(async (_p, opts) => {
+			receivedFileName = opts.fileName;
+		});
+
+		// LLM commonly interprets "title" as a human-readable name and drops the extension.
+		await tool.execute!(
+			"c",
+			{ label: "memory", path: "/workspace/42/MEMORY.md", title: "memory" } as any,
+			undefined,
+		);
+
+		expect(receivedFileName).toBe("memory.md");
+	});
+
 	test("setUploader(null) clears the previously set uploader", async () => {
 		const { tool, setUploader } = createAttachTool();
 		setUploader(async () => {});
@@ -103,5 +120,31 @@ describe("createAttachTool", () => {
 		await expect(
 			tool.execute!("c", { label: "x", path: "/workspace/42/chart.png" } as any, undefined),
 		).rejects.toThrow(/not configured|no active/i);
+	});
+});
+
+describe("resolveFileName", () => {
+	test("uses basename when title is absent", () => {
+		expect(resolveFileName("/a/b/report.pdf")).toBe("report.pdf");
+	});
+
+	test("preserves a title that already has an extension", () => {
+		expect(resolveFileName("/a/b/report.pdf", "Quarterly.pdf")).toBe("Quarterly.pdf");
+		// Title's own extension wins even when it differs from path's.
+		expect(resolveFileName("/a/b/snapshot.png", "snapshot.jpg")).toBe("snapshot.jpg");
+	});
+
+	test("appends path's extension when title lacks one", () => {
+		expect(resolveFileName("/a/b/MEMORY.md", "memory")).toBe("memory.md");
+		expect(resolveFileName("/a/b/chart.png", "Q1 chart")).toBe("Q1 chart.png");
+	});
+
+	test("leaves title untouched when neither has an extension", () => {
+		expect(resolveFileName("/a/b/Dockerfile", "build-recipe")).toBe("build-recipe");
+	});
+
+	test("treats hidden-file path with no real extension correctly", () => {
+		// extname('.bashrc') === '' — title without ext stays as-is.
+		expect(resolveFileName("/a/.bashrc", "bashrc")).toBe("bashrc");
 	});
 });
