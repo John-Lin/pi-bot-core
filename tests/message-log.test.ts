@@ -81,6 +81,35 @@ describe("logMessage", () => {
 		expect(await ml.logMessage("123", { ...msg })).toBe(false);
 	});
 
+	test("force=true with isDeleted appends a tombstone row at the same id:ts", async () => {
+		const ml = new MessageLog({ workingDir: ws });
+		const original = {
+			date: "2025-01-02T03:04:05.000Z",
+			ts: "42",
+			user: "u",
+			text: "secret",
+			attachments: [],
+			isBot: false,
+		};
+		const tombstone = {
+			date: "2025-01-02T03:05:00.000Z",
+			ts: "42",
+			user: "u",
+			text: "",
+			attachments: [],
+			isBot: false,
+			isDeleted: true,
+		};
+
+		expect(await ml.logMessage("123", { ...original })).toBe(true);
+		expect(await ml.logMessage("123", { ...tombstone }, { force: true })).toBe(true);
+
+		const lines = readFileSync(join(ws, "123", "log.jsonl"), "utf8").trim().split("\n");
+		expect(lines.length).toBe(2);
+		expect(JSON.parse(lines[0]!).isDeleted).toBeUndefined();
+		expect(JSON.parse(lines[1]!).isDeleted).toBe(true);
+	});
+
 	test("force=true bypasses the dedupe window so an edit row appends at the same id:ts", async () => {
 		const ml = new MessageLog({ workingDir: ws });
 		const original = {

@@ -19,12 +19,15 @@ import { join } from "path";
  * we stamp current ISO time, matching pi-telegram-bot's prior behavior.
  *
  * Multi-row contract: a single `ts` MAY appear on more than one line when the
- * platform delivers an edit (Discord MessageUpdate, Slack message_changed if a
- * bot opts in). Edit rows are appended via `logMessage(..., { force: true })`
- * with the new content and a populated `editedAt`. Downstream consumers
- * (sync-to-LLM-context, grep, audit) must treat the *last* row with a given
- * `ts` as the authoritative version. Backfill stays single-row per ts: it
- * skips any ts already present on disk, regardless of edit state.
+ * platform delivers an edit or a delete (Discord MessageUpdate /
+ * MessageDelete, Slack message_changed / message_deleted if a wrapper opts
+ * in). Edit rows append with `{ force: true }` plus a populated `editedAt`;
+ * delete tombstones append with `{ force: true }` plus `isDeleted: true`.
+ * Downstream consumers (sync-to-LLM-context, grep, audit) must treat the
+ * *last* row with a given `ts` as the authoritative version, and skip the
+ * `ts` entirely when that last row has `isDeleted=true`. Backfill stays
+ * single-row per ts: it skips any ts already present on disk regardless of
+ * edit state.
  */
 
 export interface Attachment {
@@ -51,6 +54,15 @@ export interface LoggedMessage {
 	 * (a second/later occurrence of the same `ts`). Absent on the original.
 	 */
 	editedAt?: string;
+	/**
+	 * Marks the row as a deletion tombstone for an earlier `ts`. Per the
+	 * multi-row contract, when the *last* row for a given `ts` has
+	 * `isDeleted: true`, downstream consumers should treat the message as
+	 * gone — exclude it from LLM-context sync, render it as deleted in audit
+	 * tooling, etc. The earlier rows for that `ts` stay on disk so deletion
+	 * remains an additive log event, not a destructive rewrite.
+	 */
+	isDeleted?: boolean;
 }
 
 export interface MessageLogConfig {
