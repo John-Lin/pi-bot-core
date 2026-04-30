@@ -17,6 +17,14 @@ import { join } from "path";
  * `LoggedMessage.date` to derive from `ts` (Slack does, Discord can via
  * snowflake) must fill `date` themselves before calling. When `date` is empty
  * we stamp current ISO time, matching pi-telegram-bot's prior behavior.
+ *
+ * Multi-row contract: a single `ts` MAY appear on more than one line when the
+ * platform delivers an edit (Discord MessageUpdate, Slack message_changed if a
+ * bot opts in). Edit rows are appended via `logMessage(..., { force: true })`
+ * with the new content and a populated `editedAt`. Downstream consumers
+ * (sync-to-LLM-context, grep, audit) must treat the *last* row with a given
+ * `ts` as the authoritative version. Backfill stays single-row per ts: it
+ * skips any ts already present on disk, regardless of edit state.
  */
 
 export interface Attachment {
@@ -38,6 +46,11 @@ export interface LoggedMessage {
 	text: string;
 	attachments: Attachment[];
 	isBot: boolean;
+	/**
+	 * ISO 8601 of the platform-side edit. Present on rows that record an edit
+	 * (a second/later occurrence of the same `ts`). Absent on the original.
+	 */
+	editedAt?: string;
 }
 
 export interface MessageLogConfig {
@@ -63,10 +76,20 @@ export class MessageLog {
 	 * Append a JSONL line to `<workingDir>/<id>/log.jsonl`. Returns false when
 	 * the same `id:ts` was logged within the last 60s, so callers can branch
 	 * on dedupe ("already saw this — skip the side effects").
+	 *
+	 * Pass `{ force: true }` to bypass the dedupe map. Reserved for edit rows
+	 * (the platform's MessageUpdate / message_changed delivers a *new* version
+	 * of an existing `ts`; without bypass, edits within the 60s window would
+	 * be silently dropped). Force-appended rows still update the dedupe map so
+	 * a same-tick redelivery of the *edit* itself doesn't double-write.
 	 */
-	async logMessage(id: string, message: LoggedMessage): Promise<boolean> {
+	async logMessage(
+		id: string,
+		message: LoggedMessage,
+		opts?: { force?: boolean },
+	): Promise<boolean> {
 		const dedupeKey = `${id}:${message.ts}`;
-		if (this.recentlyLogged.has(dedupeKey)) return false;
+		if (!opts?.force && this.recentlyLogged.has(dedupeKey)) return false;
 		this.recentlyLogged.set(dedupeKey, Date.now());
 		setTimeout(() => this.recentlyLogged.delete(dedupeKey), 60_000);
 
