@@ -5,6 +5,11 @@ import { createEditTool } from "./edit.js";
 import { createReadTool } from "./read.js";
 import { createWriteTool } from "./write.js";
 
+export {
+	type AttachToolHandle,
+	type AttachUploader,
+	createAttachTool,
+} from "./attach.js";
 export { createBashTool, type BashToolDetails } from "./bash.js";
 export { createEditTool, type EditToolDetails } from "./edit.js";
 export { createReadTool, type ReadToolDetails } from "./read.js";
@@ -18,6 +23,13 @@ export {
 	truncateHead,
 	truncateTail,
 } from "./truncate.js";
+export {
+	buildEventPayload,
+	type CommonScheduleArgs,
+	type CreateScheduleToolConfig,
+	createScheduleTool,
+	type ScheduleEventType,
+} from "./schedule.js";
 
 /**
  * Create the default set of tools (read, bash, edit, write) bound to a given Executor.
