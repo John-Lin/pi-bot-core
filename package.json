@@ -12,7 +12,8 @@
     "./workspace": "./src/workspace.ts",
     "./events": "./src/events.ts",
     "./log": "./src/log.ts",
-    "./download-queue": "./src/download-queue.ts"
+    "./download-queue": "./src/download-queue.ts",
+    "./message-log": "./src/message-log.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
