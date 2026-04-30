@@ -81,6 +81,35 @@ describe("logMessage", () => {
 		expect(await ml.logMessage("123", { ...msg })).toBe(false);
 	});
 
+	test("force=true bypasses the dedupe window so an edit row appends at the same id:ts", async () => {
+		const ml = new MessageLog({ workingDir: ws });
+		const original = {
+			date: "2025-01-02T03:04:05.000Z",
+			ts: "42",
+			user: "u",
+			text: "typo",
+			attachments: [],
+			isBot: false,
+		};
+		const edited = { ...original, text: "fixed", editedAt: "2025-01-02T03:04:08.000Z" };
+
+		expect(await ml.logMessage("123", { ...original })).toBe(true);
+		// Without force, an edit inside the 60s window is dropped.
+		expect(await ml.logMessage("123", { ...edited })).toBe(false);
+		// With force, it appends — same ts, different content.
+		expect(await ml.logMessage("123", { ...edited }, { force: true })).toBe(true);
+
+		const lines = readFileSync(join(ws, "123", "log.jsonl"), "utf8").trim().split("\n");
+		expect(lines.length).toBe(2);
+		const first = JSON.parse(lines[0]!);
+		const second = JSON.parse(lines[1]!);
+		expect(first.text).toBe("typo");
+		expect(first.editedAt).toBeUndefined();
+		expect(second.text).toBe("fixed");
+		expect(second.editedAt).toBe("2025-01-02T03:04:08.000Z");
+		expect(first.ts).toBe(second.ts);
+	});
+
 	test("dedupe is scoped per id (different id, same ts is allowed)", async () => {
 		const ml = new MessageLog({ workingDir: ws });
 		const msg = {
