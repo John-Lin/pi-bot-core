@@ -58,8 +58,8 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 
 			const limit = Math.max(1, Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
 			const query = args.query?.toLowerCase();
-			const after = args.after ? Date.parse(args.after) : undefined;
-			const before = args.before ? Date.parse(args.before) : undefined;
+			const after = parseBound("after", args.after);
+			const before = parseBound("before", args.before);
 
 			const lastByTs = readLastByTs(opts.logFilePath);
 
@@ -92,6 +92,15 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 	};
 }
 
+function parseBound(name: "after" | "before", raw: string | undefined): number | undefined {
+	if (raw === undefined) return undefined;
+	const ms = Date.parse(raw);
+	if (Number.isNaN(ms)) {
+		throw new Error(`chat_history: '${name}' is not a valid ISO 8601 timestamp: ${raw}`);
+	}
+	return ms;
+}
+
 function readLastByTs(logFilePath: string): Map<string, LoggedMessage> {
 	const lastByTs = new Map<string, LoggedMessage>();
 	if (!existsSync(logFilePath)) return lastByTs;
@@ -108,6 +117,10 @@ function readLastByTs(logFilePath: string): Map<string, LoggedMessage> {
 		try {
 			const parsed = JSON.parse(line) as LoggedMessage;
 			if (!parsed.ts) continue;
+			// Trust LoggedMessage at the type level, but guard the one field we splice into the
+			// formatted output verbatim. A row missing `text` would render as "undefined" and
+			// also poison `query` matches on that string.
+			if (typeof parsed.text !== "string") continue;
 			lastByTs.set(parsed.ts, parsed);
 		} catch {
 			// malformed line — skip without aborting the run

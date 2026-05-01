@@ -253,4 +253,54 @@ describe("createChatHistoryTool", () => {
 		const tool = createChatHistoryTool({ logFilePath: logPath });
 		await expect(tool.execute("call-1", { label: "test" }, ac.signal)).rejects.toThrow();
 	});
+
+	test("throws when `after` is not a valid ISO 8601 timestamp", async () => {
+		writeLog([row({ date: "2026-04-30T10:00:00.000Z", ts: "1", user: "u", text: "hi" })]);
+		await expect(run({ after: "yesterday" })).rejects.toThrow(/after.*ISO 8601/i);
+	});
+
+	test("throws when `before` is not a valid ISO 8601 timestamp", async () => {
+		writeLog([row({ date: "2026-04-30T10:00:00.000Z", ts: "1", user: "u", text: "hi" })]);
+		await expect(run({ before: "2026-13-99" })).rejects.toThrow(/before.*ISO 8601/i);
+	});
+
+	test("query matches bot rows by their displayed 'assistant' label", async () => {
+		writeLog([
+			row({ date: "2026-04-30T10:00:00.000Z", ts: "1", user: "u1", userName: "alice", text: "hello" }),
+			row({ date: "2026-04-30T10:01:00.000Z", ts: "2", user: "bot", isBot: true, text: "hello back" }),
+		]);
+		const result = await run({ query: "assistant" });
+		const text = (result.content[0] as { text: string }).text;
+		expect(text).toContain("assistant: hello back");
+		expect(text).not.toContain("alice: hello");
+		expect(result.details).toEqual({ count: 1 });
+	});
+
+	test("before earlier than after yields an empty result without erroring", async () => {
+		writeLog([
+			row({ date: "2026-04-30T10:00:00.000Z", ts: "1", user: "u", text: "first" }),
+			row({ date: "2026-04-30T11:00:00.000Z", ts: "2", user: "u", text: "second" }),
+		]);
+		const result = await run({
+			after: "2026-04-30T11:00:00.000Z",
+			before: "2026-04-30T10:00:00.000Z",
+		});
+		const text = (result.content[0] as { text: string }).text;
+		expect(text).toContain("No matching chat history found.");
+		expect(result.details).toEqual({ count: 0 });
+	});
+
+	test("rows missing a string `text` field are skipped", async () => {
+		const valid = JSON.stringify(row({ date: "2026-04-30T10:00:00.000Z", ts: "1", user: "u", text: "ok" }));
+		// Bypass our `row()` helper to write a row with missing/non-string text — simulates
+		// a corrupted or future-incompatible schema landing in log.jsonl.
+		const missingText = JSON.stringify({ date: "2026-04-30T10:01:00.000Z", ts: "2", user: "u", attachments: [], isBot: false });
+		const nonStringText = JSON.stringify({ date: "2026-04-30T10:02:00.000Z", ts: "3", user: "u", text: 42, attachments: [], isBot: false });
+		writeFileSync(logPath, `${valid}\n${missingText}\n${nonStringText}\n`);
+		const result = await run();
+		const text = (result.content[0] as { text: string }).text;
+		expect(text).toContain("ok");
+		expect(text).not.toContain("undefined");
+		expect(result.details).toEqual({ count: 1 });
+	});
 });
