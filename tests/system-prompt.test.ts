@@ -128,7 +128,7 @@ describe("buildBaseSystemPrompt", () => {
 	test("log queries section uses chatPath, ts type, sender suffix, and edits note", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain("`/data/r1/log.jsonl`");
-		expect(p).toContain("every observable message in this room is appended");
+		expect(p).toContain("records every observable message in this room");
 		expect(p).toContain("plus webhooks)");
 		expect(p).toContain('"ts":"<test_id>"');
 		expect(p).toContain("Edits and deletes: last `ts` wins.");
@@ -200,14 +200,36 @@ describe("buildBaseSystemPrompt", () => {
 		expect(p).toContain("/data/SYSTEM.md");
 	});
 
-	test("tools section always lists bash/read/write/edit/attach/schedule_event", () => {
+	test("tools section always lists bash/read/write/edit/chat_history/attach/schedule_event", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain("- bash: Run shell commands");
 		expect(p).toContain("- read: Read files");
 		expect(p).toContain("- write: Create/overwrite files");
 		expect(p).toContain("- edit: Surgical file edits");
+		expect(p).toContain("- chat_history: ");
 		expect(p).toContain("- attach: Share files to TestApp");
 		expect(p).toContain("- schedule_event: Schedule immediate/one-shot/periodic events");
+	});
+
+	test("chat_history sits after edit and before extra tools / attach", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		const editIdx = p.indexOf("- edit: Surgical file edits");
+		const chatHistoryIdx = p.indexOf("- chat_history:");
+		const extraIdx = p.indexOf("- testapp_publish: Publish to TestApp");
+		const attachIdx = p.indexOf("- attach: Share files to TestApp");
+		expect(chatHistoryIdx).toBeGreaterThan(editIdx);
+		expect(extraIdx).toBeGreaterThan(chatHistoryIdx);
+		expect(attachIdx).toBeGreaterThan(extraIdx);
+	});
+
+	test("Log Queries section reframes chat_history as preferred over jq", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		const logIdx = p.indexOf("## Log Queries");
+		const preferIdx = p.indexOf("prefer the `chat_history` tool", logIdx);
+		expect(preferIdx).toBeGreaterThan(logIdx);
+		// The jq recipes are still present as a fallback, framed as such.
+		expect(p).toContain("when `chat_history` isn't enough");
+		expect(p).toContain("jq -sc");
 	});
 
 	test("tools section inserts extraToolsLines before attach", () => {
