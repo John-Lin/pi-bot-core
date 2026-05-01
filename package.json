@@ -13,7 +13,8 @@
     "./events": "./src/events.ts",
     "./log": "./src/log.ts",
     "./download-queue": "./src/download-queue.ts",
-    "./message-log": "./src/message-log.ts"
+    "./message-log": "./src/message-log.ts",
+    "./system-prompt": "./src/system-prompt.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
