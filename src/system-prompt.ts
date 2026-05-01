@@ -124,7 +124,7 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 	const noun = platform.conversationNoun;
 	const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
 	const nouns = `${noun}s`;
-	const chatPath = `${workspacePath}/${conversationId}`;
+	const conversationPath = `${workspacePath}/${conversationId}`;
 	const isDocker = sandbox.type === "docker";
 
 	const envDescription = isDocker
@@ -133,8 +133,8 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 - Install tools with: apk add <package>
 - Your changes persist across sessions (container is not recreated between runs).`
 		: `You are running directly on the host machine.
-- Your working directory for this ${noun}: ${chatPath}
-- Bash commands start from the bot process's current directory, not this ${noun}'s directory. Use \`cd ${chatPath}\` or absolute paths for ${noun}-scoped work.
+- Your working directory for this ${noun}: ${conversationPath}
+- Bash commands start from the bot process's current directory, not this ${noun}'s directory. Use \`cd ${conversationPath}\` or absolute paths for ${noun}-scoped work.
 - Be careful with system modifications outside this directory.`;
 
 	const ev = platform.events;
@@ -165,7 +165,7 @@ ${platform.workspaceTreeLeafLine}
     └── skills/                # ${Noun}-specific reusable tools
 
 ## Log Queries (older history)
-Recent context is already in your conversation. For anything older, search \`${chatPath}/log.jsonl\` — every observable message in this ${noun} is appended there as JSONL (no tool calls or tool results, just user messages and your final replies${platform.logSenderSourcesSuffix}).
+Recent context is already in your conversation. For anything older, search \`${conversationPath}/log.jsonl\` — every observable message in this ${noun} is appended there as JSONL (no tool calls or tool results, just user messages and your final replies${platform.logSenderSourcesSuffix}).
 
 Row schema: \`{"date":"2026-04-30T16:55:00.000Z","ts":"${platform.logRowSchemaTsType}","user":"<id|bot>","userName":"...","displayName":"...","text":"...","attachments":[...],"isBot":false,"editedAt":"...","isDeleted":false}\`
 
@@ -173,7 +173,7 @@ ${platform.logEditsNote}
 
 Useful one-liners (run via bash):
 \`\`\`bash
-cd ${chatPath}
+cd ${conversationPath}
 
 # Latest visible state of every message (drops earlier edits + tombstoned msgs)
 jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true))' log.jsonl
@@ -192,7 +192,7 @@ jq -sc --arg u "johnlin" 'group_by(.ts) | map(last) | map(select(.isDeleted != t
 You can create reusable CLI tools for recurring tasks (API calls, data processing, etc.).
 
 ### Creating Skills
-Store in \`${workspacePath}/skills/<name>/\` (global) or \`${chatPath}/skills/<name>/\` (${noun}-specific).
+Store in \`${workspacePath}/skills/<name>/\` (global) or \`${conversationPath}/skills/<name>/\` (${noun}-specific).
 Each skill directory needs a \`SKILL.md\` with YAML frontmatter:
 
 \`\`\`markdown
@@ -267,7 +267,7 @@ At most 5 events queued per ${noun}. Don't create excessive events.
 ## Memory
 Write to MEMORY.md files to persist context across conversations.
 - Global (${workspacePath}/MEMORY.md): shared preferences, project info, cross-${noun} facts
-- ${Noun} (${chatPath}/MEMORY.md): this ${noun}'s decisions, ongoing work, personal facts about the user
+- ${Noun} (${conversationPath}/MEMORY.md): this ${noun}'s decisions, ongoing work, personal facts about the user
 Update when you learn something durable or when asked to remember something.
 
 ### Current Memory
