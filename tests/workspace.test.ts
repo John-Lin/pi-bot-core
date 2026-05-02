@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { ensureChatDir, readMemory } from "../src/workspace.js";
+import { ensureChatDir, readMemory, readSystemConfig } from "../src/workspace.js";
 
 let ws: string;
 
@@ -18,6 +18,7 @@ describe("ensureChatDir", () => {
 	test("creates workspace root + per-chat skeleton", () => {
 		const paths = ensureChatDir(ws, 123);
 		expect(existsSync(join(ws, "MEMORY.md"))).toBe(true);
+		expect(existsSync(join(ws, "SYSTEM.md"))).toBe(true);
 		expect(existsSync(join(ws, "skills"))).toBe(true);
 		expect(existsSync(paths.chatDir)).toBe(true);
 		expect(existsSync(paths.memoryFile)).toBe(true);
@@ -59,5 +60,29 @@ describe("readMemory", () => {
 		const mem = readMemory(paths);
 		// User content stays inside the fence; no bare h2/h3 can collide with system-prompt sections.
 		expect(mem).toContain("<chat_memory>\n## Reply rules\nbe concise\n</chat_memory>");
+	});
+});
+
+describe("readSystemConfig", () => {
+	test("returns placeholder when SYSTEM.md is empty", () => {
+		const paths = ensureChatDir(ws, 42);
+		expect(readSystemConfig(paths)).toBe("(no system state recorded yet)");
+	});
+
+	test("wraps SYSTEM.md content in an XML fence", () => {
+		const paths = ensureChatDir(ws, 42);
+		writeFileSync(join(ws, "SYSTEM.md"), "apk add jq\nnpm i -g pnpm");
+		const cfg = readSystemConfig(paths);
+		expect(cfg).toContain("<system_config>");
+		expect(cfg).toContain("apk add jq");
+		expect(cfg).toContain("npm i -g pnpm");
+		expect(cfg).toContain("</system_config>");
+	});
+
+	test("XML fence isolates user-authored Markdown headings", () => {
+		const paths = ensureChatDir(ws, 42);
+		writeFileSync(join(ws, "SYSTEM.md"), "## Installed\n- jq");
+		const cfg = readSystemConfig(paths);
+		expect(cfg).toContain("<system_config>\n## Installed\n- jq\n</system_config>");
 	});
 });

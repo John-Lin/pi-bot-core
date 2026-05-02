@@ -23,6 +23,7 @@ export function ensureChatDir(workspace: string, chatId: number | string): ChatP
 	mkdirSync(workspace, { recursive: true });
 	mkdirSync(join(workspace, "skills"), { recursive: true });
 	touchFile(join(workspace, "MEMORY.md"));
+	touchFile(join(workspace, "SYSTEM.md"));
 
 	const chatDir = join(workspace, String(chatId));
 	for (const sub of PER_CHAT_SUBDIRS) {
@@ -64,6 +65,20 @@ export function readMemory(paths: ChatPaths): string {
 function tryRead(path: string): string {
 	if (!existsSync(path)) return "";
 	return readFileSync(path, "utf8").trim();
+}
+
+/**
+ * Read the workspace-level `SYSTEM.md` (env mods log the agent maintains itself).
+ *
+ * Mirrors `readMemory`'s XML fence so user/LLM-authored Markdown headings inside SYSTEM.md
+ * cannot collide with surrounding system-prompt heading hierarchy. Only the global file is
+ * surfaced — environment state is shared across chats whether the bot runs on the host or
+ * inside a per-bot docker container, so a per-chat layer would not match reality.
+ */
+export function readSystemConfig(paths: ChatPaths): string {
+	const body = tryRead(join(paths.workspace, "SYSTEM.md"));
+	if (!body) return "(no system state recorded yet)";
+	return `<system_config>\n${body}\n</system_config>`;
 }
 
 /**
