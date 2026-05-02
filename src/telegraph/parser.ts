@@ -10,7 +10,7 @@ const marked = new Marked({ async: false });
  */
 export function parse(markdown: string): Node[] {
 	// Do not trim leading whitespace: indented code blocks rely on it.
-	const tokens = marked.lexer(markdown) as Token[];
+	const tokens = marked.lexer(markdown);
 	const out: Node[] = [];
 	for (const t of tokens) {
 		const node = blockToNode(t);
@@ -80,12 +80,12 @@ function listItemChildren(tokens: Token[] | undefined): Node[] {
 	if (!tokens) return [];
 	const out: Node[] = [];
 	for (const t of tokens) {
-		if (t.type === "text") {
-			const inline = (t as Tokens.Text).tokens;
-			if (inline) {
-				out.push(...inlineChildren(inline));
-				continue;
-			}
+		// "text" can be either Tokens.Text (has .tokens for inline content)
+		// or Tokens.Tag (raw inline HTML, no tokens). The `in` guard tells
+		// them apart without an unsafe cast.
+		if (t.type === "text" && "tokens" in t && t.tokens) {
+			out.push(...inlineChildren(t.tokens));
+			continue;
 		}
 		const node = blockToNode(t);
 		if (node == null) continue;
@@ -99,9 +99,8 @@ function paragraphAsFigure(tokens: Token[] | undefined): Node | null {
 	if (!tokens || tokens.length !== 1) return null;
 	const only = tokens[0];
 	if (!only || only.type !== "image") return null;
-	const image = only as Tokens.Image;
-	const children: Node[] = [{ tag: "img", attrs: { src: image.href } }];
-	if (image.text) children.push({ tag: "figcaption", children: [image.text] });
+	const children: Node[] = [{ tag: "img", attrs: { src: only.href } }];
+	if (only.text) children.push({ tag: "figcaption", children: [only.text] });
 	return { tag: "figure", children };
 }
 

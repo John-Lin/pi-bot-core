@@ -3,9 +3,23 @@ import { createTelegraphGetTool } from "../src/tools/telegraph.js";
 
 let originalFetch: typeof fetch;
 let lastBody: Record<string, unknown> | undefined;
+let nextContent: unknown = [
+	{ tag: "h3", children: ["Hello"] },
+	{
+		tag: "p",
+		children: ["body ", { tag: "strong", children: ["bold"] }],
+	},
+];
 
 beforeEach(() => {
 	lastBody = undefined;
+	nextContent = [
+		{ tag: "h3", children: ["Hello"] },
+		{
+			tag: "p",
+			children: ["body ", { tag: "strong", children: ["bold"] }],
+		},
+	];
 	originalFetch = globalThis.fetch;
 	globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
 		lastBody = init?.body ? JSON.parse(init.body as string) : undefined;
@@ -19,13 +33,7 @@ beforeEach(() => {
 					description: "",
 					views: 42,
 					can_edit: true,
-					content: [
-						{ tag: "h3", children: ["Hello"] },
-						{
-							tag: "p",
-							children: ["body ", { tag: "strong", children: ["bold"] }],
-						},
-					],
+					content: nextContent,
 				},
 			}),
 			{ status: 200, headers: { "Content-Type": "application/json" } },
@@ -87,5 +95,19 @@ describe("createTelegraphGetTool", () => {
 			undefined,
 		);
 		expect(lastBody?.path).toBe("Hello-12-31");
+	});
+
+	test("when content arrives as a string, parses it as Markdown before serialising", async () => {
+		// The Telegraph type is `string | Node[]`; this test pins the string branch.
+		nextContent = "# From string\n\nplain content";
+		const tool = createTelegraphGetTool();
+		const result = await tool.execute(
+			"call-1",
+			{ label: "read", url_or_path: "Hello-12-31" },
+			undefined,
+		);
+		const md = (result.details as { content: string }).content;
+		expect(md).toContain("From string");
+		expect(md).toContain("plain content");
 	});
 });

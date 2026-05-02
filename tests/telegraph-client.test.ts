@@ -186,4 +186,11 @@ describe("error handling", () => {
 			/SHORT_NAME_REQUIRED/,
 		);
 	});
+
+	test("API ok=true with no result throws an explicit empty-result error", async () => {
+		nextResponse = { body: { ok: true } };
+		await expect(createAccount({ short_name: "n", author_name: "a" })).rejects.toThrow(
+			/empty result/i,
+		);
+	});
 });

@@ -1,5 +1,5 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { existsSync, readFileSync } from "fs";
+import { readFile } from "fs/promises";
 import { join } from "path";
 import { Type } from "typebox";
 import { ensureTelegraphAccount, type TelegraphAccount } from "../telegraph/account.js";
@@ -8,15 +8,20 @@ import { parse } from "../telegraph/parser.js";
 import { serialize } from "../telegraph/serializer.js";
 import type { Node } from "../telegraph/types.js";
 
-function loadAccount(workspace: string): TelegraphAccount {
+async function loadAccount(workspace: string): Promise<TelegraphAccount> {
 	const file = join(workspace, ".telegraph.json");
-	if (!existsSync(file)) {
-		throw new Error(
-			`No telegraph account found at ${file}. Publish a page first via telegraph_publish, ` +
-				`or copy an existing .telegraph.json into the workspace.`,
-		);
+	try {
+		const text = await readFile(file, "utf8");
+		return JSON.parse(text) as TelegraphAccount;
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+			throw new Error(
+				`No telegraph account found at ${file}. Publish a page first via telegraph_publish, ` +
+					`or copy an existing .telegraph.json into the workspace.`,
+			);
+		}
+		throw err;
 	}
-	return JSON.parse(readFileSync(file, "utf8")) as TelegraphAccount;
 }
 
 /**
@@ -128,7 +133,13 @@ export function createTelegraphGetTool(): AgentTool<typeof getSchema> {
 
 			const path = extractPath(url_or_path);
 			const page = await getPage(path);
-			const md = serialize((page.content ?? []) as Node[]);
+			// Telegraph types content as `string | Node[]`. In practice the API
+			// returns Node[], but the string branch is part of the contract —
+			// re-parse it through our Markdown pipeline so callers always get
+			// a normalised Markdown string back.
+			const rawContent = page.content ?? [];
+			const nodes: Node[] = typeof rawContent === "string" ? parse(rawContent) : rawContent;
+			const md = serialize(nodes);
 
 			const header = `# ${page.title}\n(path: ${page.path}, url: ${page.url}${page.can_edit ? ", editable" : ""})`;
 			return {
@@ -186,7 +197,7 @@ export function createTelegraphEditTool(workspace: string): AgentTool<typeof edi
 		execute: async (_toolCallId, { url_or_path, title, content, author_name }, signal) => {
 			signal?.throwIfAborted();
 
-			const account = loadAccount(workspace);
+			const account = await loadAccount(workspace);
 			const path = extractPath(url_or_path);
 			const nodes = parse(content);
 			const page = await editPage({
@@ -239,7 +250,7 @@ export function createTelegraphListTool(workspace: string): AgentTool<typeof lis
 		execute: async (_toolCallId, { offset, limit }, signal) => {
 			signal?.throwIfAborted();
 
-			const account = loadAccount(workspace);
+			const account = await loadAccount(workspace);
 			const args: { access_token: string; offset?: number; limit?: number } = {
 				access_token: account.access_token,
 			};

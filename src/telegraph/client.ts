@@ -15,7 +15,10 @@ async function call<T>(method: string, body: Record<string, unknown>): Promise<T
 	if (!json.ok) {
 		throw new Error(`Telegraph ${method}: ${json.error}`);
 	}
-	return json.result as T;
+	if (json.result === undefined) {
+		throw new Error(`Telegraph ${method}: empty result`);
+	}
+	return json.result;
 }
 
 export function createAccount(details: {
@@ -32,8 +35,7 @@ export function createPage(args: {
 	content: Node[];
 	author_name?: string;
 	author_url?: string;
-	return_content?: boolean;
-}): Promise<Page<boolean>> {
+}): Promise<Page<false>> {
 	return call("createPage", { ...args });
 }
 
@@ -44,8 +46,7 @@ export function editPage(args: {
 	content: Node[];
 	author_name?: string;
 	author_url?: string;
-	return_content?: boolean;
-}): Promise<Page<boolean>> {
+}): Promise<Page<false>> {
 	return call("editPage", { ...args });
 }
 

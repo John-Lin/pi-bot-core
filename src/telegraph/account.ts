@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { createAccount } from "./client.js";
 
@@ -25,8 +25,11 @@ export async function ensureTelegraphAccount(
 	defaults: { short_name: string; author_name: string },
 ): Promise<TelegraphAccount> {
 	const file = join(workspace, ".telegraph.json");
-	if (existsSync(file)) {
-		return JSON.parse(readFileSync(file, "utf8")) as TelegraphAccount;
+	try {
+		const text = await readFile(file, "utf8");
+		return JSON.parse(text) as TelegraphAccount;
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
 	}
 	const created = await createAccount(defaults);
 	const account: TelegraphAccount = {
@@ -34,6 +37,6 @@ export async function ensureTelegraphAccount(
 		short_name: created.short_name,
 		author_name: created.author_name,
 	};
-	writeFileSync(file, JSON.stringify(account, null, 2));
+	await writeFile(file, JSON.stringify(account, null, 2));
 	return account;
 }
