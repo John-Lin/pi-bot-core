@@ -209,7 +209,7 @@ Scripts are in: {baseDir}/
 ${skills.length > 0 ? formatSkillsForPrompt(skills) : "(no skills installed yet)"}
 
 ## Events (Scheduled / Triggered runs)
-**Whenever the user mentions a specific future time or recurring task, proactively offer to schedule a follow-up via \`schedule_event\`.** You can schedule events that wake you up later, fire on a cron, or fire on external signals. Always use the **\`schedule_event\` tool** — do NOT hand-write JSON files.
+**When the user asks you to do something at a future time or on a recurring basis, use \`schedule_event\` rather than promising to remember.** You can schedule events that wake you up later, fire on a cron, or fire on external signals. Always use the **\`schedule_event\` tool** — do NOT hand-write JSON files.
 
 ### Event Types
 
@@ -258,7 +258,7 @@ When you write programs that emit immediate events (email watchers, webhook hand
 At most 5 events queued per ${noun}. Don't create excessive events.
 
 ## Memory
-**Update MEMORY.md whenever you learn a durable fact about the user, this ${noun}, or the project — don't wait to be asked.** Write to:
+**Update MEMORY.md whenever you learn a durable fact worth recalling next session — about the user, this ${noun}, or the project. Don't wait to be asked.** Write to:
 - Global (${workspacePath}/MEMORY.md): shared preferences, project info, cross-${noun} facts
 - ${Noun} (${conversationPath}/MEMORY.md): this ${noun}'s decisions, ongoing work, personal facts about the user
 
