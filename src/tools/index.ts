@@ -11,6 +11,7 @@ export {
 	createAttachTool,
 } from "./attach.js";
 export { createBashTool, type BashToolDetails } from "./bash.js";
+export { type CreateChatHistoryToolOptions, createChatHistoryTool } from "./chat-history.js";
 export { createEditTool, type EditToolDetails } from "./edit.js";
 export { createReadTool, type ReadToolDetails } from "./read.js";
 export { createWriteTool } from "./write.js";

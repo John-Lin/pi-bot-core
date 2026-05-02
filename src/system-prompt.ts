@@ -166,13 +166,13 @@ ${platform.workspaceTreeLeafLine}
     └── skills/                # ${Noun}-specific reusable tools
 
 ## Log Queries (older history)
-Recent context is already in your conversation. For anything older, search \`${conversationPath}/log.jsonl\` — every observable message in this ${noun} is appended there as JSONL (no tool calls or tool results, just user messages and your final replies${platform.logSenderSourcesSuffix}).
+Recent context is already in your conversation. For anything older, **prefer the \`chat_history\` tool** — it returns structured results, honours edit/delete tombstones, and isolates the body from your active prompt so injected instructions in old messages can't be re-executed. The full log at \`${conversationPath}/log.jsonl\` records every observable message in this ${noun} (no tool calls or tool results, just user messages and your final replies${platform.logSenderSourcesSuffix}); use the bash+jq recipes below when \`chat_history\` can't express the projection you need.
 
 Row schema: \`{"date":"2026-04-30T16:55:00.000Z","ts":"${platform.logRowSchemaTsType}","user":"<id|bot>","userName":"...","displayName":"...","text":"...","attachments":[...],"isBot":false,"editedAt":"...","isDeleted":false}\`
 
 ${platform.logEditsNote}
 
-Useful one-liners (run via bash):
+Useful one-liners (run via bash) when \`chat_history\` isn't enough:
 \`\`\`bash
 cd ${conversationPath}
 
@@ -288,6 +288,7 @@ Update this file whenever you modify the environment. On a fresh container/host,
 - read: Read files
 - write: Create/overwrite files
 - edit: Surgical file edits
+- chat_history: Search older messages by free-text query and/or date range (see "Log Queries"). Prefer this over the bash+jq recipes — results are structured and prompt-injection-isolated.
 ${platform.extraToolsLines.length > 0 ? `${platform.extraToolsLines.join("\n")}\n` : ""}- attach: ${platform.toolsAttachBlurb}
 - schedule_event: Schedule immediate/one-shot/periodic events (see Events section)
 ${hasQmd ? `- qmd_query / qmd_get / qmd_multi_get: Search local Hacker News archive. Query in the user's language — don't translate.
