@@ -221,6 +221,21 @@ describe("buildBaseSystemPrompt", () => {
 		expect(p).toContain("MEMORY-BODY-MARKER");
 	});
 
+	test("memory section: leads with bold imperative + don't-wait-to-be-asked", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		expect(p).toContain("**Update MEMORY.md whenever you learn a durable fact about the user, this room, or the project — don't wait to be asked.**");
+	});
+
+	test("skills section: leads with bold imperative encouraging skill creation", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		expect(p).toContain("**When you find yourself repeating a non-trivial recipe — API call, data transform, build sequence — promote it to a skill so you don't re-derive it next time.**");
+	});
+
+	test("events section: leads with bold imperative encouraging proactive scheduling", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		expect(p).toContain("**Whenever the user mentions a specific future time or recurring task, proactively offer to schedule a follow-up via `schedule_event`.**");
+	});
+
 	test("system configuration log section references SYSTEM.md path", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain("## System Configuration Log");
