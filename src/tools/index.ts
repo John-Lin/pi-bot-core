@@ -31,7 +31,11 @@ export {
 	createScheduleTool,
 	type ScheduleEventType,
 } from "./schedule.js";
-export { createTelegraphPublishTool } from "./telegraph.js";
+export {
+	createTelegraphEditTool,
+	createTelegraphGetTool,
+	createTelegraphPublishTool,
+} from "./telegraph.js";
 
 /**
  * Create the default set of tools (read, bash, edit, write) bound to a given Executor.

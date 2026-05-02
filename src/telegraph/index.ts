@@ -1,6 +1,7 @@
 export { ensureTelegraphAccount, type TelegraphAccount } from "./account.js";
 export { createAccount, createPage, editPage, getPage } from "./client.js";
 export { parse } from "./parser.js";
+export { serialize } from "./serializer.js";
 export {
 	type AccessToken,
 	type Account,
