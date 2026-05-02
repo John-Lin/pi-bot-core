@@ -1,4 +1,4 @@
-import type { AccessToken, Account, AuthUrl, Node, Page } from "./types.js";
+import type { AccessToken, Account, AuthUrl, Node, Page, PageList } from "./types.js";
 
 const API_ROOT = "https://api.telegra.ph";
 
@@ -51,4 +51,12 @@ export function editPage(args: {
 
 export function getPage(path: string, return_content = true): Promise<Page<true>> {
 	return call("getPage", { path, return_content });
+}
+
+export function getPages(args: {
+	access_token: string;
+	offset?: number;
+	limit?: number;
+}): Promise<PageList> {
+	return call("getPageList", { ...args });
 }

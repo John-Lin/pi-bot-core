@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createAccount, createPage, editPage, getPage } from "../src/telegraph/client.js";
+import { createAccount, createPage, editPage, getPage, getPages } from "../src/telegraph/client.js";
 
 interface CapturedRequest {
 	url: string;
@@ -138,6 +138,37 @@ describe("getPage", () => {
 		};
 		await getPage("p", false);
 		expect(captured?.body).toEqual({ path: "p", return_content: false });
+	});
+});
+
+describe("getPages", () => {
+	test("POSTs to /getPageList with access_token + offset/limit", async () => {
+		nextResponse = {
+			body: {
+				ok: true,
+				result: {
+					total_count: 2,
+					pages: [
+						{ path: "A-12-31", url: "https://telegra.ph/A-12-31", title: "A", description: "", views: 1 },
+						{ path: "B-12-30", url: "https://telegra.ph/B-12-30", title: "B", description: "", views: 5 },
+					],
+				},
+			},
+		};
+
+		const result = await getPages({ access_token: "tok", offset: 0, limit: 50 });
+
+		expect(captured?.url).toBe("https://api.telegra.ph/getPageList");
+		expect(captured?.body).toEqual({ access_token: "tok", offset: 0, limit: 50 });
+		expect(result.total_count).toBe(2);
+		expect(result.pages).toHaveLength(2);
+		expect(result.pages[0].title).toBe("A");
+	});
+
+	test("offset/limit are optional", async () => {
+		nextResponse = { body: { ok: true, result: { total_count: 0, pages: [] } } };
+		await getPages({ access_token: "tok" });
+		expect(captured?.body).toEqual({ access_token: "tok" });
 	});
 });
 

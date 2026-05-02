@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { Type } from "typebox";
 import { ensureTelegraphAccount, type TelegraphAccount } from "../telegraph/account.js";
-import { createPage, editPage, getPage } from "../telegraph/client.js";
+import { createPage, editPage, getPage, getPages } from "../telegraph/client.js";
 import { parse } from "../telegraph/parser.js";
 import { serialize } from "../telegraph/serializer.js";
 import type { Node } from "../telegraph/types.js";
@@ -208,4 +208,76 @@ export function createTelegraphEditTool(workspace: string): AgentTool<typeof edi
 			};
 		},
 	};
+}
+
+const listSchema = Type.Object({
+	label: Type.String({
+		description: "Short description of why you're listing (shown to the user)",
+	}),
+	offset: Type.Optional(
+		Type.Number({ description: "Number of pages to skip (default 0)" }),
+	),
+	limit: Type.Optional(
+		Type.Number({ description: "Max pages to return (default 50, Telegraph max 200)" }),
+	),
+});
+
+/**
+ * List Telegraph pages authored by this workspace's account. Useful when the
+ * user asks "what have I published" or when the agent needs to recover a
+ * forgotten path before calling telegraph_edit.
+ */
+export function createTelegraphListTool(workspace: string): AgentTool<typeof listSchema> {
+	return {
+		name: "telegraph_list",
+		label: "telegraph_list",
+		description:
+			"List telegra.ph pages this workspace has published, most recent first. Returns title + URL + view count " +
+			"per page so the agent can recall what's already out there or recover a path for telegraph_edit. " +
+			"Errors if this workspace has no Telegraph account yet.",
+		parameters: listSchema,
+		execute: async (_toolCallId, { offset, limit }, signal) => {
+			signal?.throwIfAborted();
+
+			const account = loadAccount(workspace);
+			const args: { access_token: string; offset?: number; limit?: number } = {
+				access_token: account.access_token,
+			};
+			if (offset !== undefined) args.offset = offset;
+			if (limit !== undefined) args.limit = limit;
+
+			const result = await getPages(args);
+			const text = formatPageList(result.total_count, result.pages);
+
+			return {
+				content: [{ type: "text", text }],
+				details: {
+					total_count: result.total_count,
+					pages: result.pages.map((p) => ({
+						path: p.path,
+						url: p.url,
+						title: p.title,
+						views: p.views,
+					})),
+				},
+			};
+		},
+	};
+}
+
+function formatPageList(
+	totalCount: number,
+	pages: { path: string; url: string; title: string; views: number }[],
+): string {
+	if (pages.length === 0) {
+		return "No pages published by this workspace yet.";
+	}
+	const header =
+		pages.length < totalCount
+			? `${pages.length} of ${totalCount} pages (use offset/limit to page through):`
+			: `${totalCount} page${totalCount === 1 ? "" : "s"}:`;
+	const lines = pages.map(
+		(p, i) => `${i + 1}. "${p.title}" — ${p.url} (${p.views} view${p.views === 1 ? "" : "s"})`,
+	);
+	return `${header}\n\n${lines.join("\n")}`;
 }

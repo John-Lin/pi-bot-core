@@ -34,6 +34,7 @@ export {
 export {
 	createTelegraphEditTool,
 	createTelegraphGetTool,
+	createTelegraphListTool,
 	createTelegraphPublishTool,
 } from "./telegraph.js";
 
