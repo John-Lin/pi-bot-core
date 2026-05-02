@@ -159,6 +159,7 @@ ${envDescription}
 ${workspacePath}/
 ├── access.json                # DO NOT MODIFY - access control (managed by ${platform.cliName} CLI)
 ├── MEMORY.md                  # Global memory (shared across all ${nouns})
+├── SYSTEM.md                  # Env mods log (auto-inlined — see "System Configuration Log")
 ├── skills/                    # Global reusable CLI tools you create
 ├── events/                    # Scheduled / triggered events (see below)
 ${platform.workspaceTreeLeafLine}

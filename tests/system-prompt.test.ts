@@ -118,10 +118,11 @@ describe("buildBaseSystemPrompt", () => {
 		expect(p).toContain("Bash working directory: /");
 	});
 
-	test("workspace tree includes access.json with cliName, MEMORY.md, skills/, events/, leaf line, and per-conversation files", () => {
+	test("workspace tree includes access.json with cliName, MEMORY.md, SYSTEM.md, skills/, events/, leaf line, and per-conversation files", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain("├── access.json                # DO NOT MODIFY - access control (managed by pi-test-bot CLI)");
 		expect(p).toContain("├── MEMORY.md                  # Global memory (shared across all rooms)");
+		expect(p).toContain('├── SYSTEM.md                  # Env mods log (auto-inlined — see "System Configuration Log")');
 		expect(p).toContain("├── skills/                    # Global reusable CLI tools you create");
 		expect(p).toContain("├── events/                    # Scheduled / triggered events (see below)");
 		expect(p).toContain("└── r1/                     # This room");
