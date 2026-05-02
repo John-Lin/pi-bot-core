@@ -26,9 +26,9 @@
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
-    "@mariozechner/pi-agent-core": "^0.70.2",
-    "@mariozechner/pi-ai": "^0.70.2",
-    "@mariozechner/pi-coding-agent": "^0.70.2"
+    "@mariozechner/pi-agent-core": "^0.72.0",
+    "@mariozechner/pi-ai": "^0.72.0",
+    "@mariozechner/pi-coding-agent": "^0.72.0"
   },
   "dependencies": {
     "typebox": "^1.1.24",
