@@ -32,6 +32,7 @@ const baseInput = {
 	botUsername: "pi-bot",
 	skills: [],
 	memory: "(no working memory yet)",
+	systemConfig: "(no system state recorded yet)",
 	sandbox: { type: "host" as const },
 	platform: testPlatform,
 	liveStateLines: ["- Current room: test (id: r1)"],
@@ -210,6 +211,26 @@ describe("buildBaseSystemPrompt", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain("## System Configuration Log");
 		expect(p).toContain("/data/SYSTEM.md");
+	});
+
+	test("system configuration log section: includes Current System State subsection with placeholder when empty", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		expect(p).toContain("### Current System State");
+		expect(p).toContain("(no system state recorded yet)");
+	});
+
+	test("system configuration log section: injects systemConfig body verbatim", () => {
+		const p = buildBaseSystemPrompt({
+			...baseInput,
+			systemConfig: "<system_config>\napk add jq\n</system_config>",
+		});
+		expect(p).toContain("<system_config>\napk add jq\n</system_config>");
+		// Body sits inside the System Configuration Log section, not Memory.
+		const sysIdx = p.indexOf("## System Configuration Log");
+		const bodyIdx = p.indexOf("apk add jq");
+		const toolsIdx = p.indexOf("## Tools");
+		expect(bodyIdx).toBeGreaterThan(sysIdx);
+		expect(toolsIdx).toBeGreaterThan(bodyIdx);
 	});
 
 	test("tools section always lists bash/read/write/edit/chat_history/attach/schedule_event", () => {

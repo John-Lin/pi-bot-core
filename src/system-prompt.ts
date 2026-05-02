@@ -89,6 +89,8 @@ export interface BaseSystemPromptInput {
 	skills: Skill[];
 	/** Memory blob to splice into the `### Current Memory` subsection. */
 	memory: string;
+	/** SYSTEM.md blob (env mods log) to splice into the `### Current System State` subsection. */
+	systemConfig: string;
 	sandbox: SandboxConfig;
 	/** When true, append a tool hint routing HN-style queries to the qmd_* tools. */
 	hasQmd?: boolean;
@@ -115,6 +117,7 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 		botUsername,
 		skills,
 		memory,
+		systemConfig,
 		sandbox,
 		hasQmd,
 		platform,
@@ -281,7 +284,10 @@ Maintain ${workspacePath}/SYSTEM.md to log all environment modifications:
 - Config files modified (~/.gitconfig, cron jobs, etc.)
 - Skill dependencies installed
 
-Update this file whenever you modify the environment. On a fresh container/host, read it first to restore your setup.
+Update this file whenever you modify the environment. The current contents are spliced in below — they refresh each turn, so you don't need to re-read SYSTEM.md before reusing previously-installed packages or settings.
+
+### Current System State
+${systemConfig}
 
 ## Tools
 - bash: Run shell commands (primary tool). Install packages as needed.
