@@ -221,6 +221,21 @@ describe("buildBaseSystemPrompt", () => {
 		expect(p).toContain("MEMORY-BODY-MARKER");
 	});
 
+	test("memory section: leads with bold imperative + worth-recalling-next-session filter + don't-wait-to-be-asked", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		expect(p).toContain("**Update MEMORY.md whenever you learn a durable fact worth recalling next session — about the user, this room, or the project. Don't wait to be asked.**");
+	});
+
+	test("skills section: leads with bold imperative encouraging skill creation", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		expect(p).toContain("**When you find yourself repeating a non-trivial recipe — API call, data transform, build sequence — promote it to a skill so you don't re-derive it next time.**");
+	});
+
+	test("events section: leads with bold imperative scoped to actual user requests (not casual time-mentions)", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		expect(p).toContain("**When the user asks you to do something at a future time or on a recurring basis, use `schedule_event` rather than promising to remember.**");
+	});
+
 	test("system configuration log section references SYSTEM.md path", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain("## System Configuration Log");
@@ -274,9 +289,23 @@ describe("buildBaseSystemPrompt", () => {
 		const logIdx = p.indexOf("## Log Queries");
 		const preferIdx = p.indexOf("prefer the `chat_history` tool", logIdx);
 		expect(preferIdx).toBeGreaterThan(logIdx);
-		// The jq recipes are still present as a fallback, framed as such.
-		expect(p).toContain("when `chat_history` isn't enough");
+		// The jq fallback is still present, framed as such.
+		expect(p).toContain("`chat_history` can't express the projection");
 		expect(p).toContain("jq -sc");
+	});
+
+	test("Log Queries section: jq cookbook compressed to one canonical recipe + composition hint", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		// Single canonical "latest visible state" projection.
+		expect(p).toContain('jq -sc \'group_by(.ts) | map(last) | map(select(.isDeleted != true))\' log.jsonl');
+		// Composition hint enumerates the three common knobs without spelling out a recipe per knob.
+		expect(p).toContain("`.[-30:]`");
+		expect(p).toContain('`test("foo"; "i")`');
+		expect(p).toContain('`.userName == "..."`');
+		// Old per-knob recipes should NOT be present.
+		expect(p).not.toContain("Last 30 visible messages, compact");
+		expect(p).not.toContain("Search by topic (latest-state aware)");
+		expect(p).not.toContain("All messages from a specific user");
 	});
 
 	test("tools section inserts extraToolsLines before attach", () => {

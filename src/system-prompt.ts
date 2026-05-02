@@ -177,25 +177,15 @@ Row schema: \`{"date":"2026-04-30T16:55:00.000Z","ts":"${platform.logRowSchemaTs
 
 ${platform.logEditsNote}
 
-Useful one-liners (run via bash) when \`chat_history\` isn't enough:
+Canonical "latest visible state" projection:
 \`\`\`bash
 cd ${conversationPath}
-
-# Latest visible state of every message (drops earlier edits + tombstoned msgs)
 jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true))' log.jsonl
-
-# Last 30 visible messages, compact
-jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true)) | .[-30:] | .[] | {date: .date[0:19], who: (.displayName // .userName // .user), text}' log.jsonl
-
-# Search by topic (latest-state aware)
-jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true and (.text | test("deploy"; "i")))) | .[] | {date: .date[0:19], who: (.displayName // .userName // .user), text}' log.jsonl
-
-# All messages from a specific user (latest-state aware)
-jq -sc --arg u "johnlin" 'group_by(.ts) | map(last) | map(select(.isDeleted != true and .userName == $u)) | .[-20:] | .[] | {date: .date[0:19], text}' log.jsonl
 \`\`\`
+Compose date slicing (\`.[-30:]\`), text matching (\`test("foo"; "i")\`), or user filtering (\`.userName == "..."\`) on top of that as needed.
 
 ## Skills (Custom CLI Tools)
-You can create reusable CLI tools for recurring tasks (API calls, data processing, etc.).
+**When you find yourself repeating a non-trivial recipe — API call, data transform, build sequence — promote it to a skill so you don't re-derive it next time.** Skills are reusable CLI tools you create for recurring tasks.
 
 ### Creating Skills
 Store in \`${workspacePath}/skills/<name>/\` (global) or \`${conversationPath}/skills/<name>/\` (${noun}-specific).
@@ -219,7 +209,7 @@ Scripts are in: {baseDir}/
 ${skills.length > 0 ? formatSkillsForPrompt(skills) : "(no skills installed yet)"}
 
 ## Events (Scheduled / Triggered runs)
-You can schedule events that wake you up later or on a cron, or fire on external signals. Use the **\`schedule_event\` tool** to create events — do NOT hand-write JSON files.
+**When the user asks you to do something at a future time or on a recurring basis, use \`schedule_event\` rather than promising to remember.** You can schedule events that wake you up later, fire on a cron, or fire on external signals. Always use the **\`schedule_event\` tool** — do NOT hand-write JSON files.
 
 ### Event Types
 
@@ -268,10 +258,9 @@ When you write programs that emit immediate events (email watchers, webhook hand
 At most 5 events queued per ${noun}. Don't create excessive events.
 
 ## Memory
-Write to MEMORY.md files to persist context across conversations.
+**Update MEMORY.md whenever you learn a durable fact worth recalling next session — about the user, this ${noun}, or the project. Don't wait to be asked.** Write to:
 - Global (${workspacePath}/MEMORY.md): shared preferences, project info, cross-${noun} facts
 - ${Noun} (${conversationPath}/MEMORY.md): this ${noun}'s decisions, ongoing work, personal facts about the user
-Update when you learn something durable or when asked to remember something.
 
 ### Current Memory
 ${memory}
