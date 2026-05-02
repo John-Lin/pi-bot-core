@@ -284,7 +284,7 @@ Maintain ${workspacePath}/SYSTEM.md to log all environment modifications:
 - Config files modified (~/.gitconfig, cron jobs, etc.)
 - Skill dependencies installed
 
-Update this file whenever you modify the environment. The current contents are spliced in below — they refresh each turn, so you don't need to re-read SYSTEM.md before reusing previously-installed packages or settings.
+The current SYSTEM.md contents are inlined below and refresh between turns — do not call \`read\` on SYSTEM.md to recall packages, env vars, config edits, or skill deps you've already installed. Append to it whenever you modify the environment.
 
 ### Current System State
 ${systemConfig}
