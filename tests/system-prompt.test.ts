@@ -289,9 +289,23 @@ describe("buildBaseSystemPrompt", () => {
 		const logIdx = p.indexOf("## Log Queries");
 		const preferIdx = p.indexOf("prefer the `chat_history` tool", logIdx);
 		expect(preferIdx).toBeGreaterThan(logIdx);
-		// The jq recipes are still present as a fallback, framed as such.
-		expect(p).toContain("when `chat_history` isn't enough");
+		// The jq fallback is still present, framed as such.
+		expect(p).toContain("`chat_history` can't express the projection");
 		expect(p).toContain("jq -sc");
+	});
+
+	test("Log Queries section: jq cookbook compressed to one canonical recipe + composition hint", () => {
+		const p = buildBaseSystemPrompt(baseInput);
+		// Single canonical "latest visible state" projection.
+		expect(p).toContain('jq -sc \'group_by(.ts) | map(last) | map(select(.isDeleted != true))\' log.jsonl');
+		// Composition hint enumerates the three common knobs without spelling out a recipe per knob.
+		expect(p).toContain("`.[-30:]`");
+		expect(p).toContain('`test("foo"; "i")`');
+		expect(p).toContain('`.userName == "..."`');
+		// Old per-knob recipes should NOT be present.
+		expect(p).not.toContain("Last 30 visible messages, compact");
+		expect(p).not.toContain("Search by topic (latest-state aware)");
+		expect(p).not.toContain("All messages from a specific user");
 	});
 
 	test("tools section inserts extraToolsLines before attach", () => {

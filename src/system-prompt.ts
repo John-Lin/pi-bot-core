@@ -177,22 +177,12 @@ Row schema: \`{"date":"2026-04-30T16:55:00.000Z","ts":"${platform.logRowSchemaTs
 
 ${platform.logEditsNote}
 
-Useful one-liners (run via bash) when \`chat_history\` isn't enough:
+Canonical "latest visible state" projection:
 \`\`\`bash
 cd ${conversationPath}
-
-# Latest visible state of every message (drops earlier edits + tombstoned msgs)
 jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true))' log.jsonl
-
-# Last 30 visible messages, compact
-jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true)) | .[-30:] | .[] | {date: .date[0:19], who: (.displayName // .userName // .user), text}' log.jsonl
-
-# Search by topic (latest-state aware)
-jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true and (.text | test("deploy"; "i")))) | .[] | {date: .date[0:19], who: (.displayName // .userName // .user), text}' log.jsonl
-
-# All messages from a specific user (latest-state aware)
-jq -sc --arg u "johnlin" 'group_by(.ts) | map(last) | map(select(.isDeleted != true and .userName == $u)) | .[-20:] | .[] | {date: .date[0:19], text}' log.jsonl
 \`\`\`
+Compose date slicing (\`.[-30:]\`), text matching (\`test("foo"; "i")\`), or user filtering (\`.userName == "..."\`) on top of that as needed.
 
 ## Skills (Custom CLI Tools)
 **When you find yourself repeating a non-trivial recipe — API call, data transform, build sequence — promote it to a skill so you don't re-derive it next time.** Skills are reusable CLI tools you create for recurring tasks.
