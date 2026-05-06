@@ -317,21 +317,6 @@ describe("buildBaseSystemPrompt", () => {
 		expect(attachIdx).toBeGreaterThan(extraIdx);
 	});
 
-	test("tools section omits qmd hint when hasQmd is false/undefined", () => {
-		const p = buildBaseSystemPrompt(baseInput);
-		expect(p).not.toContain("qmd_query");
-		expect(p).not.toContain("Hacker News");
-	});
-
-	test("tools section adds qmd hint when hasQmd is true", () => {
-		const p = buildBaseSystemPrompt({ ...baseInput, hasQmd: true });
-		expect(p).toContain("qmd_query");
-		expect(p).toContain("qmd_get");
-		expect(p).toContain("qmd_multi_get");
-		expect(p).toContain("Hacker News");
-		expect(p.toLowerCase()).toContain("don't translate");
-	});
-
 	test("tools section requires label parameter blurb", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain('Each tool requires a "label" parameter');

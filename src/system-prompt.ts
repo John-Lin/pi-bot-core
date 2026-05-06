@@ -92,8 +92,6 @@ export interface BaseSystemPromptInput {
 	/** SYSTEM.md blob (env mods log) to splice into the `### Current System State` subsection. */
 	systemConfig: string;
 	sandbox: SandboxConfig;
-	/** When true, append a tool hint routing HN-style queries to the qmd_* tools. */
-	hasQmd?: boolean;
 	platform: PlatformConfig;
 	/**
 	 * Pre-built `## Live State` body lines. Joined with `\n` and placed at the end of the
@@ -119,7 +117,6 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 		memory,
 		systemConfig,
 		sandbox,
-		hasQmd,
 		platform,
 		liveStateLines,
 	} = input;
@@ -285,8 +282,7 @@ ${systemConfig}
 - chat_history: Search older messages by free-text query and/or date range (see "Log Queries"). Prefer this over the bash+jq recipes — structured results, easier to filter.
 ${platform.extraToolsLines.length > 0 ? `${platform.extraToolsLines.join("\n")}\n` : ""}- attach: ${platform.toolsAttachBlurb}
 - schedule_event: Schedule immediate/one-shot/periodic events (see Events section)
-${hasQmd ? `- qmd_query / qmd_get / qmd_multi_get: Search local Hacker News archive. Query in the user's language — don't translate.
-` : ""}
+
 Each tool requires a "label" parameter (shown to user).
 
 ## Silent Replies
