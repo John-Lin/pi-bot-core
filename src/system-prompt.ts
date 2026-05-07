@@ -66,8 +66,14 @@ export interface PlatformConfig {
 		 */
 		extraIdBlurb: string;
 	};
-	/** Description appended to `- attach: ` in the `## Tools` section, e.g. "Share files to Discord". */
-	toolsAttachBlurb: string;
+	/**
+	 * Description appended to `- attach: ` in the `## Tools` section, e.g. "Share files to Discord".
+	 *
+	 * Set to an empty string (or omit) on platforms that have no file-upload capability — the
+	 * entire `- attach:` bullet is dropped from the Tools section so the LLM doesn't try to call
+	 * a tool that isn't registered.
+	 */
+	toolsAttachBlurb?: string;
 	/**
 	 * Additional tool description lines inserted between the always-on tools (bash/read/write/edit)
 	 * and `- attach`. Each entry is a complete bullet line, e.g. "- telegraph_publish: ...".
@@ -280,8 +286,7 @@ ${systemConfig}
 - write: Create/overwrite files
 - edit: Surgical file edits
 - chat_history: Search older messages by free-text query and/or date range (see "Log Queries"). Prefer this over the bash+jq recipes — structured results, easier to filter.
-${platform.extraToolsLines.length > 0 ? `${platform.extraToolsLines.join("\n")}\n` : ""}- attach: ${platform.toolsAttachBlurb}
-- schedule_event: Schedule immediate/one-shot/periodic events (see Events section)
+${platform.extraToolsLines.length > 0 ? `${platform.extraToolsLines.join("\n")}\n` : ""}${platform.toolsAttachBlurb ? `- attach: ${platform.toolsAttachBlurb}\n` : ""}- schedule_event: Schedule immediate/one-shot/periodic events (see Events section)
 
 Each tool requires a "label" parameter (shown to user).
 

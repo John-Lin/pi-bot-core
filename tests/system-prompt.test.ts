@@ -317,6 +317,32 @@ describe("buildBaseSystemPrompt", () => {
 		expect(attachIdx).toBeGreaterThan(extraIdx);
 	});
 
+	test("tools section omits the `- attach:` line entirely when toolsAttachBlurb is empty (platforms without file upload)", () => {
+		const noAttachPlatform: PlatformConfig = { ...testPlatform, toolsAttachBlurb: "" };
+		const p = buildBaseSystemPrompt({ ...baseInput, platform: noAttachPlatform });
+		expect(p).not.toContain("- attach:");
+		// Other always-on tools and the platform's extra tools still render in order.
+		const editIdx = p.indexOf("- edit: Surgical file edits");
+		const extraIdx = p.indexOf("- testapp_publish: Publish to TestApp");
+		const scheduleIdx = p.indexOf("- schedule_event:");
+		expect(editIdx).toBeGreaterThan(0);
+		expect(extraIdx).toBeGreaterThan(editIdx);
+		expect(scheduleIdx).toBeGreaterThan(extraIdx);
+	});
+
+	test("tools section omits attach line cleanly when both extraToolsLines is empty AND toolsAttachBlurb is empty", () => {
+		const minimalPlatform: PlatformConfig = {
+			...testPlatform,
+			toolsAttachBlurb: "",
+			extraToolsLines: [],
+		};
+		const p = buildBaseSystemPrompt({ ...baseInput, platform: minimalPlatform });
+		expect(p).not.toContain("- attach:");
+		// schedule_event must immediately follow chat_history with no blank line gap.
+		expect(p).toContain("- chat_history: Search older messages");
+		expect(p).toMatch(/- chat_history: [\s\S]*?\n- schedule_event:/);
+	});
+
 	test("tools section requires label parameter blurb", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain('Each tool requires a "label" parameter');
