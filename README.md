@@ -2,21 +2,42 @@
 
 Shared runtime and building blocks for pi-mono based bots (e.g. `pi-discord-bot`, `pi-telegram-bot`).
 
-Ported from [`pi-mono/packages/mom`](https://github.com/badlogic/pi-mono/tree/main/packages/mom) with the `Executor` abstraction so the same tools work on host or inside a Docker container without tool changes.
+The `Executor` abstraction lets the same agent tools work on the host or inside a Docker container without tool changes. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
 
 ## Contents
+
+### Sandbox / Executor (`pi-bot-core`, `pi-bot-core/sandbox`)
 
 - `Executor` interface
 - `HostExecutor` — runs commands locally via `sh -c`
 - `DockerExecutor` — runs commands inside a running container via `docker exec ... sh -c`
 - `createExecutor(config)` / `parseSandboxArg(arg)` / `validateSandbox(config)` helpers
+
+### Agent tools (`pi-bot-core/tools`)
+
+All tools are `AgentTool` instances from `@mariozechner/pi-agent-core` and drop into any Agent session.
+
 - `createBashTool(executor)` — run bash with tail truncation + temp file spill
 - `createReadTool(executor)` — read text files (offset/limit) and images (base64)
 - `createWriteTool(executor)` — write files, creates parent dirs
 - `createEditTool(executor)` — exact-match text replacement with unified diff output
+- `createAttachTool()` — let the LLM upload a file back to the user; bot wires the platform-specific uploader
+- `createChatHistoryTool({ logFilePath })` — search the conversation's `log.jsonl` (respects edit/delete tombstones)
+- `createScheduleTool(config)` — typed `schedule_event` tool for immediate / one-shot / periodic events
+- `createTelegraphPublishTool` / `createTelegraphGetTool` / `createTelegraphEditTool` / `createTelegraphListTool`
+- `createBotTools(executor)` — convenience bundle of the four core tools (read, bash, edit, write)
 - Truncation helpers (`truncateHead`, `truncateTail`)
 
-All tools are `AgentTool` instances from `@mariozechner/pi-agent-core` so they drop into any Agent session.
+### Higher-level modules
+
+- `pi-bot-core/workspace` — per-chat directory layout (`MEMORY.md`, `attachments/`, `scratch/`, `skills/`), skill loading, host↔container path translation
+- `pi-bot-core/message-log` — append-only `log.jsonl` with the multi-row edit/delete contract used by every bot
+- `pi-bot-core/events` — generic event-file watcher that fires immediate / one-shot / periodic JSON events into a dispatcher
+- `pi-bot-core/log` — platform-agnostic logger factory (chalk colours, usage summaries, tool/LLM lifecycle lines)
+- `pi-bot-core/download-queue` — sequential background downloader for attachments
+- `pi-bot-core/fs-watch` — `fs.watch` wrapper that survives macOS inode rotation
+- `pi-bot-core/system-prompt` — `buildBaseSystemPrompt` shared scaffold consumed by per-bot system prompts
+- `pi-bot-core/telegraph` — in-house Telegraph API client + Markdown ↔ Telegraph node parser/serializer
 
 ## Usage
 
@@ -59,13 +80,23 @@ const executor = new HostExecutor();
 const tools = [createBashTool(executor), createReadTool(executor)];
 ```
 
-## Status
+### Add platform-specific tools
 
-- [x] `HostExecutor`
-- [x] `DockerExecutor`
-- [x] `SandboxConfig` / `parseSandboxArg` / `validateSandbox` / `createExecutor`
-- [x] bash / read / write / edit
-- [ ] grep / find / ls (agent uses bash for now, same as pi-mom)
+```ts
+import {
+  createBotTools,
+  createAttachTool,
+  createChatHistoryTool,
+  createScheduleTool,
+} from "pi-bot-core";
+
+const tools = [
+  ...createBotTools(executor),
+  createAttachTool().tool,                          // wire setUploader at run time
+  createChatHistoryTool({ logFilePath }),
+  createScheduleTool(scheduleConfig),               // bot supplies routing schema
+];
+```
 
 ## Sandbox: division of responsibilities
 
@@ -79,7 +110,7 @@ What each bot repo owns:
 - Wiring the CLI flag / env var to `parseSandboxArg`
 - Container lifecycle scripts (`docker.sh` / Makefile / Dockerfile)
 - System-prompt wording that tells the LLM whether it's on host or in a container
-  (paths, package manager, etc. — see `pi-mom/src/agent.ts buildSystemPrompt`)
+  (paths, package manager, etc. — see each bot's `buildSystemPrompt`)
 
 ## Runtime requirements
 
@@ -102,13 +133,14 @@ docker run -d --name pi-sandbox \
   alpine:latest tail -f /dev/null
 ```
 
-No new npm dependency — `DockerExecutor` is string wrapping around `docker exec` and reuses `HostExecutor` for the actual child-process work.
+No new npm dependency for sandboxing — `DockerExecutor` is string wrapping around `docker exec` and reuses `HostExecutor` for the actual child-process work.
 
 ## Development
 
 ```sh
 bun install
 bun run typecheck
+bun test
 ```
 
-No build step — consumers import `src/*.ts` directly (Bun / tsc bundler mode).
+No build step — consumers import `src/*.ts` directly (Bun / tsc bundler mode). Subpath exports in `package.json` map each module to its source file.
