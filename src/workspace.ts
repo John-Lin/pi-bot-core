@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { loadSkillsFromDir, type Skill } from "@mariozechner/pi-coding-agent";
+import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 
 const PER_CHAT_SUBDIRS = ["attachments", "scratch", "skills"] as const;
 
