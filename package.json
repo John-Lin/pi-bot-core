@@ -1,6 +1,6 @@
 {
   "name": "pi-bot-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shared runtime and building blocks for pi-mono based bots (executor + tools, workspace, events scheduler)",
   "license": "MIT",
   "type": "module",
@@ -28,9 +28,9 @@
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "^0.74.0",
-    "@earendil-works/pi-ai": "^0.74.0",
-    "@earendil-works/pi-coding-agent": "^0.74.0"
+    "@earendil-works/pi-agent-core": "^0.75.4",
+    "@earendil-works/pi-ai": "^0.75.4",
+    "@earendil-works/pi-coding-agent": "^0.75.4"
   },
   "dependencies": {
     "chalk": "^5.6.2",
