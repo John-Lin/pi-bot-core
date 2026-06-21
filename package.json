@@ -23,6 +23,9 @@
     "test": "bun test"
   },
   "devDependencies": {
+    "@earendil-works/pi-agent-core": "^0.79.9",
+    "@earendil-works/pi-ai": "^0.79.9",
+    "@earendil-works/pi-coding-agent": "^0.79.9",
     "@types/bun": "latest",
     "@types/diff": "^7.0.2",
     "typescript": "^5.7.0"
