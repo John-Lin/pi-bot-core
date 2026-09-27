@@ -146,7 +146,7 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 	const ev = platform.events;
 	const liveState = liveStateLines.join("\n");
 
-	return `You are ${botUsername}, an assistant reachable through ${platform.displayName}. Be concise. No emojis. Prefer short replies (under 5 lines) unless the user explicitly asks for detail.
+	return `You are ${botUsername}, an assistant reachable through ${platform.displayName}. Be concise. Prefer short replies (under 5 lines) unless the user explicitly asks for detail.
 
 ## Context
 - For current date/time, call \`date\` via bash.
