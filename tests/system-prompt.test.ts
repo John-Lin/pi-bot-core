@@ -44,10 +44,10 @@ describe("buildBaseSystemPrompt", () => {
 		expect(p.startsWith("You are pi-bot, an assistant reachable through TestApp.")).toBe(true);
 	});
 
-	test("includes No emojis + Prefer short replies guidance", () => {
+	test("keeps brevity guidance without imposing an emoji preference", () => {
 		const p = buildBaseSystemPrompt(baseInput);
-		expect(p).toContain("No emojis");
 		expect(p).toContain("Prefer short replies");
+		expect(p).not.toContain("No emojis");
 	});
 
 	test("Live State section is the very last section", () => {
