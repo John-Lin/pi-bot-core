@@ -17,7 +17,7 @@ The `Executor` abstraction lets the same agent tools work on the host or inside 
 
 ### Agent tools (`pi-bot-core/tools`)
 
-All tools are `AgentTool` instances from `@mariozechner/pi-agent-core` and drop into any Agent session.
+All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and drop into any Agent session.
 
 - `createBashTool(executor)` — run bash with tail truncation + temp file spill
 - `createReadTool(executor)` — read text files (offset/limit) and images (base64)
