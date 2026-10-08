@@ -116,6 +116,8 @@ What each bot repo owns:
 
 ## Runtime requirements
 
+Consumers must provide `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-coding-agent` matching the `^1.1.0` peer dependency ranges. Development installs use the same SDK versions to verify the shared tools against the consumer's agent pipeline.
+
 ### Host mode
 
 - Node/Bun with `sh` (POSIX) or `cmd` (Windows) on the host.
