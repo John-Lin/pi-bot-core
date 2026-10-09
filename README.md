@@ -41,6 +41,8 @@ All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and dro
 - `pi-bot-core/system-prompt` — `buildBaseSystemPrompt` shared scaffold consumed by per-bot system prompts
 - `pi-bot-core/telegraph` — in-house Telegraph API client + Markdown ↔ Telegraph node parser/serializer
 
+Immediate events tolerate short outages: files last modified within five minutes before the `EventsWatcher` was constructed (including the cutoff) are dispatched during startup; older files are deleted without dispatch. The existing per-target limit of five in-flight dispatcher calls still applies, and files are deleted before dispatch with no retry on dispatcher failure.
+
 ## Usage
 
 ### Host mode

@@ -87,6 +87,7 @@ const DEBOUNCE_MS = 100;
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 100;
 const MAX_QUEUED = 5;
+const IMMEDIATE_STALE_TOLERANCE_MS = 5 * 60 * 1000;
 
 const consoleLogger: EventsLogger = {
 	info: (msg) => console.log(msg),
@@ -293,10 +294,10 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 
 	private handleImmediate(filename: string, event: TEvent): void {
 		const filePath = join(this.eventsDir, filename);
-		// Skip stale immediates (file existed before watcher startup).
+		// Allow recent pre-start signals so short outages don't discard them.
 		try {
 			const stat = statSync(filePath);
-			if (stat.mtimeMs < this.startTime) {
+			if (stat.mtimeMs < this.startTime - IMMEDIATE_STALE_TOLERANCE_MS) {
 				this.log.info(`Stale immediate event, deleting: ${filename}`);
 				this.deleteFile(filename);
 				return;
