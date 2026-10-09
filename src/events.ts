@@ -87,7 +87,7 @@ const DEBOUNCE_MS = 100;
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 100;
 const MAX_QUEUED = 5;
-const IMMEDIATE_STALE_TOLERANCE_MS = 60 * 60 * 1000;
+const IMMEDIATE_STALE_TOLERANCE_MS = 5 * 60 * 1000;
 
 const consoleLogger: EventsLogger = {
 	info: (msg) => console.log(msg),

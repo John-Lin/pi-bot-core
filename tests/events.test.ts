@@ -61,11 +61,11 @@ async function waitForDeletion(filePath: string): Promise<void> {
 
 describe("EventsWatcher immediate startup tolerance", () => {
 	for (const { name, ageMs, shouldDispatch } of [
-		{ name: "dispatches an event from 30 minutes before startup", ageMs: 1_800_000, shouldDispatch: true },
-		{ name: "dispatches an event just inside the one-hour cutoff", ageMs: 3_599_000, shouldDispatch: true },
-		{ name: "dispatches an event exactly at the one-hour cutoff", ageMs: 3_600_000, shouldDispatch: true },
-		{ name: "discards an event just outside the one-hour cutoff", ageMs: 3_601_000, shouldDispatch: false },
-		{ name: "discards an event from two hours before startup", ageMs: 7_200_000, shouldDispatch: false },
+		{ name: "dispatches an event from two minutes before startup", ageMs: 120_000, shouldDispatch: true },
+		{ name: "dispatches an event just inside the five-minute cutoff", ageMs: 299_000, shouldDispatch: true },
+		{ name: "dispatches an event exactly at the five-minute cutoff", ageMs: 300_000, shouldDispatch: true },
+		{ name: "discards an event just outside the five-minute cutoff", ageMs: 301_000, shouldDispatch: false },
+		{ name: "discards an event from 30 minutes before startup", ageMs: 1_800_000, shouldDispatch: false },
 	]) {
 		test(name, async () => {
 			const filePath = writeImmediate(startTime - ageMs);
