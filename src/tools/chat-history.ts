@@ -1,21 +1,21 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "typebox";
+import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import type { LoggedMessage } from "../message-log.js";
 
-const chatHistorySchema = Type.Object({
-	label: Type.String({ description: "Brief description of what you're searching for (shown to user)" }),
-	query: Type.Optional(Type.String({ description: "Case-insensitive text to search for in message body or speaker name" })),
-	after: Type.Optional(Type.String({ description: "ISO 8601 timestamp lower bound, inclusive" })),
-	before: Type.Optional(Type.String({ description: "ISO 8601 timestamp upper bound, inclusive" })),
-	limit: Type.Optional(
-		Type.Number({
+const chatHistorySchema = obj({
+	label: str({ description: "Brief description of what you're searching for (shown to user)" }),
+	query: opt(str({ description: "Case-insensitive text to search for in message body or speaker name" })),
+	after: opt(str({ description: "ISO 8601 timestamp lower bound, inclusive" })),
+	before: opt(str({ description: "ISO 8601 timestamp upper bound, inclusive" })),
+	limit: opt(
+		num({
 			description: "Maximum number of messages to return (default 20, max 200). Most recent matches kept.",
 			minimum: 1,
 			maximum: 200,
 		}),
 	),
-});
+}, { open: true });
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 200;

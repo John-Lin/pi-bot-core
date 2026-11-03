@@ -1,7 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { Type } from "typebox";
+import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { ensureTelegraphAccount, type TelegraphAccount } from "../telegraph/account.js";
 import { createPage, editPage, getPage, getPages } from "../telegraph/client.js";
 import { parse } from "../telegraph/parser.js";
@@ -44,18 +44,18 @@ function extractPath(input: string): string {
 	return trimmed;
 }
 
-const publishSchema = Type.Object({
-	label: Type.String({
+const publishSchema = obj({
+	label: str({
 		description: "Short description of what you're publishing (shown to the user)",
 	}),
-	title: Type.String({ description: "Page title" }),
-	content: Type.String({ description: "Page body in Markdown" }),
-	author_name: Type.Optional(
-		Type.String({
+	title: str({ description: "Page title" }),
+	content: str({ description: "Page body in Markdown" }),
+	author_name: opt(
+		str({
 			description: "Override the author name shown under the title for this page",
 		}),
 	),
-});
+}, { open: true });
 
 /**
  * Publish a Markdown article to Telegraph (telegra.ph).
@@ -104,15 +104,15 @@ export function createTelegraphPublishTool(
 	};
 }
 
-const getSchema = Type.Object({
-	label: Type.String({
+const getSchema = obj({
+	label: str({
 		description: "Short description of what you're reading (shown to the user)",
 	}),
-	url_or_path: Type.String({
+	url_or_path: str({
 		description:
 			"Either a full telegra.ph URL (e.g. https://telegra.ph/Hello-12-31) or just the path segment (Hello-12-31).",
 	}),
-});
+}, { open: true });
 
 /**
  * Read a Telegraph page. Returns the title plus the body rendered back to
@@ -162,21 +162,21 @@ export function createTelegraphGetTool(): AgentTool<typeof getSchema> {
 	};
 }
 
-const editSchema = Type.Object({
-	label: Type.String({
+const editSchema = obj({
+	label: str({
 		description: "Short description of what you're editing (shown to the user)",
 	}),
-	url_or_path: Type.String({
+	url_or_path: str({
 		description: "Full telegra.ph URL or just the path segment of the page to overwrite.",
 	}),
-	title: Type.String({ description: "New page title" }),
-	content: Type.String({ description: "New page body in Markdown — replaces the old body entirely" }),
-	author_name: Type.Optional(
-		Type.String({
+	title: str({ description: "New page title" }),
+	content: str({ description: "New page body in Markdown — replaces the old body entirely" }),
+	author_name: opt(
+		str({
 			description: "Override the author name shown under the title for this revision",
 		}),
 	),
-});
+}, { open: true });
 
 /**
  * Edit an existing Telegraph page authored by this workspace's account. The
@@ -221,17 +221,17 @@ export function createTelegraphEditTool(workspace: string): AgentTool<typeof edi
 	};
 }
 
-const listSchema = Type.Object({
-	label: Type.String({
+const listSchema = obj({
+	label: str({
 		description: "Short description of why you're listing (shown to the user)",
 	}),
-	offset: Type.Optional(
-		Type.Number({ description: "Number of pages to skip (default 0)" }),
+	offset: opt(
+		num({ description: "Number of pages to skip (default 0)" }),
 	),
-	limit: Type.Optional(
-		Type.Number({ description: "Max pages to return (default 50, Telegraph max 200)" }),
+	limit: opt(
+		num({ description: "Max pages to return (default 50, Telegraph max 200)" }),
 	),
-});
+}, { open: true });
 
 /**
  * List Telegraph pages authored by this workspace's account. Useful when the

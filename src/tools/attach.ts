@@ -1,6 +1,6 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { basename, extname } from "path";
-import { Type } from "typebox";
+import { obj, opt, str } from "@earendil-works/pi-schema";
 
 /**
  * Uploader callback wired in by each ChatAgent run. Always called with the
@@ -27,16 +27,16 @@ export interface AttachToolHandle {
 	setUploader(fn: AttachUploader | null): void;
 }
 
-const attachSchema = Type.Object({
-	label: Type.String({ description: "Brief description of what you're sharing (shown to user)" }),
-	path: Type.String({ description: "Path to the file to attach" }),
-	title: Type.Optional(
-		Type.String({
+const attachSchema = obj({
+	label: str({ description: "Brief description of what you're sharing (shown to user)" }),
+	path: str({ description: "Path to the file to attach" }),
+	title: opt(
+		str({
 			description:
 				"Optional filename override. Must include the file extension (e.g. 'report.pdf', 'memory.md'); the extension drives how the platform renders or downloads the file. Defaults to the basename of `path`.",
 		}),
 	),
-});
+}, { open: true });
 
 /**
  * Build the `attach` tool for a single ChatAgent instance.
