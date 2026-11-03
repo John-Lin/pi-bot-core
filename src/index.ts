@@ -1,3 +1,4 @@
+export { loadAgentSettings } from "./agent-settings.js";
 export {
 	createExecutor,
 	DockerExecutor,

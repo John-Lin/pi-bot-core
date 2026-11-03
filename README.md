@@ -32,6 +32,7 @@ All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and dro
 
 ### Higher-level modules
 
+- `pi-bot-core/agent-settings` — strict loading of shared bot agent tuning, with a separate model context-window override
 - `pi-bot-core/workspace` — per-chat directory layout (`MEMORY.md`, `attachments/`, `scratch/`, `skills/`), skill loading, host↔container path translation
 - `pi-bot-core/message-log` — append-only `log.jsonl` with the multi-row edit/delete contract used by every bot
 - `pi-bot-core/events` — generic event-file watcher that fires immediate / one-shot / periodic JSON events into a dispatcher
@@ -74,6 +75,41 @@ const config = parseSandboxArg(process.env.SANDBOX ?? "host");
 await validateSandbox(config);   // throws SandboxConfigError if docker is missing / container stopped
 const tools = createBotTools(createExecutor(config));
 ```
+
+### Load bot agent settings
+
+```ts
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
+import { loadAgentSettings } from "pi-bot-core/agent-settings";
+
+const { contextWindow, settings } = loadAgentSettings("config/agent-settings.json");
+const settingsManager = SettingsManager.inMemory(settings);
+// Apply contextWindow to the resolved model when defined; it is not a Pi setting.
+```
+
+`loadAgentSettings(path)` synchronously reads and validates a JSON file with `pi-schema`. It is also exported from `pi-bot-core`. Call it during startup so invalid configuration fails before serving conversations. A valid file looks like:
+
+```json
+{
+  "contextWindow": 272000,
+  "compaction": {
+    "reserveTokens": 82000,
+    "keepRecentTokens": 20000
+  }
+}
+```
+
+The supported fields are deliberately limited to the tuning shared by the bots:
+
+| Field | Accepted value |
+|---|---|
+| `contextWindow` | Positive safe integer, at most `Number.MAX_SAFE_INTEGER` |
+| `compaction.reserveTokens` | Non-negative safe integer |
+| `compaction.keepRecentTokens` | Non-negative safe integer |
+
+All fields are optional, including `compaction` itself. An empty object or partial compaction object leaves omitted values to the caller or SDK defaults. Unknown fields at either level are rejected; this is not a loader for arbitrary Pi `settings.json` files. There is no coercion: numeric strings, booleans, and `null` are invalid. Extend the shared schema explicitly when another setting is needed.
+
+The return value is `{ contextWindow, settings }`, with the bot-owned context window removed from `settings`. Missing or unreadable files and malformed JSON throw instead of falling back to defaults. Schema errors include the file path and JSON Pointer field paths (for example, `/compaction/reserveTokens`); invalid JSON errors do not include file contents. The loader does not write files, log, create a session, or resolve a model. MCP configuration is separate and is not handled by this loader.
 
 ### Pick tools individually
 
