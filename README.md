@@ -118,7 +118,11 @@ What each bot repo owns:
 
 ## Runtime requirements
 
-Consumers must provide `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-coding-agent` matching the `^1.1.0` peer dependency ranges. Development installs use SDK `^1.4.0` to verify the shared tools against the latest agent pipeline.
+Consumers must provide `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-coding-agent` matching the `^1.5.0` peer dependency ranges. Development installs use the same SDK range.
+
+Tool parameter schemas use `@earendil-works/pi-schema` instead of a direct TypeBox dependency. Built-in schemas use `obj(properties, { open: true })` to preserve their acceptance of extra fields; required fields, optional fields, descriptions, and numeric bounds are unchanged. Pi SDK 1.5 validates and coerces tool arguments with pi-schema, including its validation error messages. `pi-coding-agent` still brings TypeBox as a transitive dependency for extension compatibility.
+
+When supplying `createScheduleTool` parameters, use pi-schema builders (`obj`, `str`, `num`, `opt`, etc.); routing callback arguments are inferred with pi-schema's `Static`. Unlike the built-in schemas here, `obj(properties)` is closed by default; pass `{ open: true }` if your schema should accept extra fields.
 
 ### Host mode
 
@@ -148,5 +152,7 @@ bun install
 bun run typecheck
 bun test
 ```
+
+`typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI.
 
 No build step — consumers import `src/*.ts` directly (Bun / tsc bundler mode). Subpath exports in `package.json` map each module to its source file.

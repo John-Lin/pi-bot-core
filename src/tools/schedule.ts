@@ -1,14 +1,14 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import type { Static, TSchema } from "typebox";
+import type { Schema, Static } from "@earendil-works/pi-schema";
 
 export type ScheduleEventType = "immediate" | "one-shot" | "periodic";
 
 /**
  * Platform-agnostic fields every scheduled event carries.
  *
- * Each bot composes its own typebox parameters schema (chatId/channelId,
+ * Each bot composes its own pi-schema parameters schema (chatId/channelId,
  * threadId, etc.) and projects validated args onto this shape via
  * {@link CreateScheduleToolConfig.buildRouting} + the common fields below.
  */
@@ -83,9 +83,9 @@ export function buildEventPayload(
 	return { filename, json };
 }
 
-export interface CreateScheduleToolConfig<TParams extends TSchema> {
+export interface CreateScheduleToolConfig<TParams extends Schema> {
 	workspace: string;
-	/** Typebox schema for the tool's `parameters`. */
+	/** JSON Schema for the tool's `parameters`, typed with pi-schema. */
 	parameters: TParams;
 	/** Description shown to the LLM. */
 	description: string;
@@ -109,7 +109,7 @@ export interface CreateScheduleToolConfig<TParams extends TSchema> {
  * This tool puts the schema at the call site so wrong calls fail loudly,
  * with the error visible to the LLM.
  */
-export function createScheduleTool<TParams extends TSchema>(
+export function createScheduleTool<TParams extends Schema>(
 	config: CreateScheduleToolConfig<TParams>,
 ): AgentTool<TParams> {
 	const eventsDir = join(config.workspace, "events");

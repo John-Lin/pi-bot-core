@@ -3,7 +3,7 @@ import { createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "typebox";
+import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import type { Executor } from "../sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateTail } from "./truncate.js";
 
@@ -12,11 +12,11 @@ function getTempFilePath(): string {
 	return join(tmpdir(), `pi-bot-bash-${id}.log`);
 }
 
-const bashSchema = Type.Object({
-	label: Type.String({ description: "Brief description of what this command does (shown to user)" }),
-	command: Type.String({ description: "Bash command to execute" }),
-	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
-});
+const bashSchema = obj({
+	label: str({ description: "Brief description of what this command does (shown to user)" }),
+	command: str({ description: "Bash command to execute" }),
+	timeout: opt(num({ description: "Timeout in seconds (optional, no default timeout)" })),
+}, { open: true });
 
 export interface BashToolDetails {
 	truncation?: TruncationResult;

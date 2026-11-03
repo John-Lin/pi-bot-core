@@ -18,5 +18,5 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "tests/tool-schemas.test.ts"]
 }
