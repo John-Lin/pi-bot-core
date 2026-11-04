@@ -23,6 +23,7 @@
     "tests/tool-schemas.test.ts",
     "tests/events.test.ts",
     "tests/events-lifecycle.test.ts",
+    "tests/system-prompt.test.ts",
     "tests/agent-extensions.test.ts",
     "tests/mcp-config.test.ts",
     "tests/mcp-oauth.test.ts",

@@ -337,7 +337,7 @@ bun run typecheck
 bun test
 ```
 
-`typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI, as well as the Codemode/MCP tests and their fixtures.
+`typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI, as well as the event lifecycle and shared system-prompt tests, the Codemode/MCP tests, and their fixtures.
 
 The Codemode/MCP tests run real stdio and streamable HTTP fixture servers and a local OAuth server, with `HOME`, `PI_CODING_AGENT_DIR`, credential, and log paths in temporary directories. They drive tool calls through the SDK tool pipeline with synthetic assistant messages and never call a model.
 
