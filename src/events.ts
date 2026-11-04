@@ -120,14 +120,14 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 
 	start(): void {
 		if (!this.stopped) return;
-		this.stopped = false;
-		const generation = ++this.generation;
 
 		if (!existsSync(this.eventsDir)) {
 			mkdirSync(this.eventsDir, { recursive: true });
 		}
 
 		this.log.info(`Events watcher starting, dir: ${this.eventsDir}`);
+		this.stopped = false;
+		const generation = ++this.generation;
 		this.scanExisting(generation);
 		this.startFsWatcher(generation);
 		this.log.info(`Events watcher started, tracking ${this.knownFiles.size} files`);

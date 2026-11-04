@@ -3,6 +3,7 @@ import {
 	appendFileSync,
 	existsSync,
 	type FSWatcher,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -31,6 +32,7 @@ type WatcherWork = {
 	execute(filename: string, event: TestEvent, ...args: unknown[]): Promise<void>;
 };
 
+let tempDir: string;
 let eventsDir: string;
 let watcher: EventsWatcher<TestEvent>;
 let dispatched: FiredEvent<TestEvent>[];
@@ -44,7 +46,9 @@ let dispatchWork: ReturnType<typeof spyOn<WatcherWork, "execute">>;
 let readGates: ReturnType<typeof deferred>[];
 
 beforeEach(() => {
-	eventsDir = mkdtempSync(join(tmpdir(), "pi-bot-events-lifecycle-"));
+	tempDir = mkdtempSync(join(tmpdir(), "pi-bot-events-lifecycle-"));
+	eventsDir = join(tempDir, "events");
+	mkdirSync(eventsDir);
 	dispatched = [];
 	warnings = [];
 	parsed = [];
@@ -86,7 +90,7 @@ afterEach(async () => {
 	readSpy = undefined;
 	fileWork.mockRestore();
 	dispatchWork.mockRestore();
-	rmSync(eventsDir, { recursive: true, force: true });
+	rmSync(tempDir, { recursive: true, force: true });
 });
 
 function writeEvent(filename: string, event: Partial<TestEvent> = {}): string {
@@ -138,6 +142,30 @@ function expectNoSchedules(): void {
 }
 
 describe("EventsWatcher lifecycle ownership", () => {
+	test("start retries failed directory preparation without an intervening stop", async () => {
+		rmSync(tempDir, { recursive: true });
+		writeFileSync(tempDir, "not a directory");
+		expect(() => watcher.start()).toThrow(/ENOTDIR/);
+
+		rmSync(tempDir);
+		mkdirSync(eventsDir, { recursive: true });
+		const filePath = writeEvent("retry-start.json");
+		watcher.start();
+		await settleFiles();
+
+		expect(dispatched).toEqual([
+			{
+				type: "immediate",
+				chatId: 123,
+				name: "retry-start.json",
+				text: "[EVENT:retry-start.json:immediate:immediate] retry-start.json",
+			},
+		]);
+		expect(readFileSync(join(eventsDir, "dispatch.log"), "utf-8")).toBe("retry-start.json\n");
+		expect(existsSync(filePath)).toBe(false);
+		expect(warnings).toEqual([]);
+	});
+
 	for (const event of [
 		{ type: "immediate" as const },
 		{ type: "one-shot" as const, at: new Date(Date.now() + 60_000).toISOString() },
