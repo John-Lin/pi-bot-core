@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join, relative } from "path";
 import { createBotTools, HostExecutor } from "../src/index.js";
-import { type BotMcpConfig, loadBotMcpConfig } from "../src/agent-extensions.js";
+import { type BotMcpConfig, loadBotMcpConfig } from "pi-bot-core/agent-extensions";
 import { startMcpHttpServer } from "./fixtures/mcp-http-server.js";
 import {
 	type BotSession,

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { loadBotMcpConfig } from "../src/agent-extensions.js";
+import { loadBotMcpConfig } from "pi-bot-core/agent-extensions";
 
 function withTempDir(run: (dir: string) => void): void {
 	const dir = mkdtempSync(join(tmpdir(), "pi-bot-core-mcp-config-"));

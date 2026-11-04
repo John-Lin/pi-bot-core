@@ -20,7 +20,7 @@ import {
 	type BotAgentExtensions,
 	type BotMcpConfig,
 	createBotAgentExtensions,
-} from "../../src/agent-extensions.js";
+} from "pi-bot-core/agent-extensions";
 
 export const STDIO_FIXTURE = join(import.meta.dir, "..", "fixtures", "mcp-stdio-server.ts");
 
