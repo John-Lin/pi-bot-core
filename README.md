@@ -34,6 +34,7 @@ All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and dro
 
 - `pi-bot-core/agent-settings` — strict loading of shared bot agent tuning, with a separate model context-window override
 - `pi-bot-core/workspace` — per-chat directory layout (`MEMORY.md`, `attachments/`, `scratch/`, `skills/`), skill loading, host↔container path translation
+- `pi-bot-core/workspace-bootstrap` — symlink-aware workspace validation plus seeding and bounded reading of shared `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, and `USER.md` prompt files
 - `pi-bot-core/message-log` — append-only `log.jsonl` with the multi-row edit/delete contract used by every bot
 - `pi-bot-core/events` — generic event-file watcher that fires immediate / one-shot / periodic JSON events into a dispatcher
 - `pi-bot-core/log` — platform-agnostic logger factory (chalk colours, usage summaries, tool/LLM lifecycle lines)
@@ -110,6 +111,38 @@ The supported fields are deliberately limited to the tuning shared by the bots:
 All fields are optional, including `compaction` itself. An empty object or partial compaction object leaves omitted values to the caller or SDK defaults. Unknown fields at either level are rejected; this is not a loader for arbitrary Pi `settings.json` files. There is no coercion: numeric strings, booleans, and `null` are invalid. Extend the shared schema explicitly when another setting is needed.
 
 The return value is `{ contextWindow, settings }`, with the bot-owned context window removed from `settings`. Missing or unreadable files and malformed JSON throw instead of falling back to defaults. Schema errors include the file path and JSON Pointer field paths (for example, `/compaction/reserveTokens`); invalid JSON errors do not include file contents. The loader does not write files, log, create a session, or resolve a model. MCP configuration is separate and is not handled by this loader.
+
+### Workspace bootstrap files
+
+```ts
+import {
+  ensureWorkspaceBootstrap,
+  ensureWorkspacePathIsSafe,
+  readWorkspaceBootstrap,
+  WorkspaceBootstrapSecurityError,
+} from "pi-bot-core/workspace-bootstrap";
+
+// Startup: validate before any other workspace storage I/O, then seed.
+ensureWorkspacePathIsSafe(workspace);
+ensureWorkspaceBootstrap(workspace);
+
+// Every run: revalidate, then read fresh content for the system prompt.
+ensureWorkspacePathIsSafe(workspace);
+const workspaceBootstrap = readWorkspaceBootstrap(workspace, visibleWorkspacePath);
+```
+
+This module is only available from the `pi-bot-core/workspace-bootstrap` subpath. It does not change `ensureChatDir` or other `pi-bot-core/workspace` behavior.
+
+Caller contract:
+
+- `ensureWorkspacePathIsSafe(workspace)` throws `WorkspaceBootstrapSecurityError` when `fs.constants.O_NOFOLLOW` is unavailable (checked before any filesystem access) or when the workspace or any parent is a symbolic link or non-directory. Otherwise it creates missing directories. Call it before creating any workspace storage and again before each run.
+- `ensureWorkspaceBootstrap(workspace)` creates missing starter files at the workspace root with exclusive create, so existing files (including dangling links) are never overwritten. It does nothing if the workspace is missing or linked, and stops if the workspace path changes between files.
+- `readWorkspaceBootstrap(workspace, visibleWorkspace)` returns `### <visibleWorkspace>/<file>` headings with `<agents_md>`, `<soul_md>`, `<identity_md>`, and `<user_md>` sections, separated by blank lines. Content is trimmed. Missing, linked, or non-regular files, and a missing or changed workspace path, produce empty sections. `AGENTS.md`, `SOUL.md`, and `IDENTITY.md` are limited to 20,000 Unicode code points and `USER.md` to 4,000; longer content ends with `[truncated: read <visibleWorkspace>/<file> for the rest]`. It throws `WorkspaceBootstrapSecurityError` when `O_NOFOLLOW` is unavailable.
+- Unexpected filesystem errors (for example `EACCES`) are thrown by all three functions.
+- `USER.md` lives at the workspace root and is shared by every chat using that workspace. Files are reread on every call, so edits apply to the next run.
+- Where the section goes in the system prompt, which visible path to show (for example `/workspace` in Docker mode), how errors are presented to users, and when these functions are called are decided by each bot.
+
+Limitations: the checks compare each path component's device and inode before and after operations and open files with `O_NOFOLLOW`, but they are not atomic. A process that can modify the workspace or its parents can still race the checks. This reduces accidental or casual symlink escapes; it is not a filesystem sandbox.
 
 ### Pick tools individually
 
