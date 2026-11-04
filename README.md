@@ -33,6 +33,7 @@ All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and dro
 ### Higher-level modules
 
 - `pi-bot-core/agent-settings` — strict loading of shared bot agent tuning, with a separate model context-window override
+- `pi-bot-core/agent-extensions` — strict bot `mcp.json` loading plus the per-session Codemode, tool search, and MCP extensions (OAuth via Pi's credential store)
 - `pi-bot-core/workspace` — per-chat directory layout (`MEMORY.md`, `attachments/`, `scratch/`, `skills/`), skill loading, host↔container path translation
 - `pi-bot-core/workspace-bootstrap` — symlink-aware workspace validation plus seeding and bounded reading of shared `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, and `USER.md` prompt files
 - `pi-bot-core/message-log` — append-only `log.jsonl` with the multi-row edit/delete contract used by every bot
@@ -110,7 +111,119 @@ The supported fields are deliberately limited to the tuning shared by the bots:
 
 All fields are optional, including `compaction` itself. An empty object or partial compaction object leaves omitted values to the caller or SDK defaults. Unknown fields at either level are rejected; this is not a loader for arbitrary Pi `settings.json` files. There is no coercion: numeric strings, booleans, and `null` are invalid. Extend the shared schema explicitly when another setting is needed.
 
-The return value is `{ contextWindow, settings }`, with the bot-owned context window removed from `settings`. Missing or unreadable files and malformed JSON throw instead of falling back to defaults. Schema errors include the file path and JSON Pointer field paths (for example, `/compaction/reserveTokens`); invalid JSON errors do not include file contents. The loader does not write files, log, create a session, or resolve a model. MCP configuration is separate and is not handled by this loader.
+The return value is `{ contextWindow, settings }`, with the bot-owned context window removed from `settings`. Missing or unreadable files and malformed JSON throw instead of falling back to defaults. Schema errors include the file path and JSON Pointer field paths (for example, `/compaction/reserveTokens`); invalid JSON errors do not include file contents. The loader does not write files, log, create a session, or resolve a model. MCP configuration is separate and is not handled by this loader; see [Codemode and MCP](#codemode-and-mcp).
+
+### Codemode and MCP
+
+`pi-bot-core/agent-extensions` builds the SDK extensions a bot's `AgentSession` needs for Codemode and MCP. It is only available from this subpath, so importing `pi-bot-core` does not load this module or `@earendil-works/pi-mcp`. Codemode and the MCP client themselves come from the Pi SDK; this module only configures them.
+
+```ts
+import {
+  AgentSession,
+  DefaultResourceLoader,
+  getAgentDir,
+  SessionManager,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
+import { createBotAgentExtensions, loadBotMcpConfig } from "pi-bot-core/agent-extensions";
+import { homedir } from "os";
+import { join } from "path";
+
+// Startup: invalid config throws before the bot serves chats. A missing file means no servers.
+const mcp = loadBotMcpConfig("config/mcp.json");
+
+// Per chat session:
+let turnSystemPrompt = "";
+const extensions = createBotAgentExtensions({
+  name: "telegram",                                   // labels the inline extensions in SDK errors
+  mcp,
+  mcpLogPath: join(homedir(), ".pi", "pi-telegram-bot", "mcp.log"),
+  systemPrompt: () => turnSystemPrompt,               // platform-built prompt for the starting turn
+});
+const resourceLoader = new DefaultResourceLoader({
+  cwd: chatDir,
+  agentDir: getAgentDir(),
+  settingsManager,
+  noExtensions: true,
+  noSkills: true,
+  noPromptTemplates: true,
+  noThemes: true,
+  noContextFiles: true,
+  systemPromptOverride: () => "",
+  appendSystemPromptOverride: () => [],
+  extensionFactories: extensions.extensions,
+});
+await resourceLoader.reload();
+const session = new AgentSession({
+  agent,
+  sessionManager,
+  settingsManager,
+  cwd: chatDir,
+  modelRuntime,
+  resourceLoader,
+  baseToolsOverride: Object.fromEntries(tools.map((tool) => [tool.name, tool])),
+  initialActiveToolNames: [...tools.map((tool) => tool.name), ...extensions.activeToolNames],
+});
+const headlessUi = session.extensionRunner.getUIContext();
+await session.bindExtensions({
+  uiContext: { ...headlessUi, notify: (message, type) => { /* bot logs warnings and errors */ } },
+  onError: (error) => { /* bot logs extension errors */ },
+});
+
+// Before each prompt: build the platform prompt, ending with `\n\n## Live State\n...`.
+turnSystemPrompt = buildSystemPrompt(/* ... */);
+// `prefixedText` is the chat message already prefixed with timestamp and sender, as the
+// current bots do; never pass raw user text (a leading `/` would dispatch SDK commands).
+await session.prompt(prefixedText);
+
+// Chat teardown, in this order:
+await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+await extensions.close();
+session.dispose();                                    // when the bot's own run/abort handling allows
+```
+
+`createBotAgentExtensions(options)` returns:
+
+- `extensions`: inline extension factories, in order: Codemode (`mode: "on"`, `models: false`); when `mcp` has servers, the SDK tool search extension, a `<name>-mcp-servers` extension registering the configured servers, and the SDK MCP extension; and a hidden `<name>-system-prompt` extension.
+- `activeToolNames`: tool names to append to the native tool names in `initialActiveToolNames` (currently `["codemode"]`). Codemode stays active and can batch native tools even with no MCP servers; scripts get no `models` API. The SDK activates `tool_search` itself when a server uses `deferred` exposure.
+- `close()`: closes every MCP transport this runtime created, including transports still connecting or reconnecting. It is idempotent and resolves when the closes settle.
+
+Caller contract:
+
+- Create one runtime per chat `AgentSession` and pass `extensions` and `activeToolNames` exactly as above. MCP connections are per chat, not a shared pool; each chat with MCP servers starts its own stdio processes and HTTP sessions.
+- The resource loader must disable Pi's own discovery as shown (`noExtensions`, `noSkills`, `noPromptTemplates`, `noThemes`, `noContextFiles`, empty system prompt overrides). The `<name>-system-prompt` extension forces `systemPrompt()` as the prompt on every `before_agent_start`. When the SDK's MCP extension provides its `mcp_servers` directory (servers with `codemode` or `deferred` tools), it is inserted as `<mcp_servers>…</mcp_servers>` before the last `\n\n## Live State\n` heading, or appended when there is none, so the per-turn state stays at the end.
+- Call `session.bindExtensions()`; MCP servers start connecting in the background on `session_start`. Startup problems (failed connections, invalid header or env values, servers needing sign-in) arrive once through `uiContext.notify(message, "warning")` with the SDK's `Run /mcp to fix.` hint, which the bot should rewrite for its operators. Extension handler failures arrive through `onError`.
+- On teardown, emit `session_shutdown` first (the SDK MCP extension stops its connections), then `await close()`, then dispose the session. `AgentSession.dispose()` does not emit `session_shutdown` by itself.
+- The bot owns the config path and when it is loaded, its platform tools and prompt content, visible filesystem paths, user commands and messages, notification wording, and creation, abort, and disposal of each session.
+- The SDK MCP extension registers a `/mcp` command; this module leaves that SDK behavior unchanged. `session.prompt()` dispatches text starting with `/` to extension commands unless `expandPromptTemplates` is `false`, and `/mcp login` would start a browser sign-in on the bot host. Never pass unprefixed chat text that way; the current bots prefix every message with a timestamp and sender.
+
+#### Configuration
+
+`loadBotMcpConfig(path)` reads `{ "mcpServers": { "<name>": { ... } } }`. It is the bot's only MCP source: Pi's personal (`~/.pi/agent/mcp.json`) and project (`.pi/mcp.json`) files are never loaded, and Pi's root-level `autoEnableCodemode` is rejected. Unknown fields anywhere are rejected. Server names may contain only letters, digits, `_`, and `-`, and must stay distinct when `-` is read as `_`.
+
+- stdio: `command`, optional `args`, `env`, `cwd`, and `type: "stdio"`.
+- Streamable HTTP: `url` (`http` or `https`), optional `headers`, `oauth`, and `type: "http"` or `"streamable-http"`. Legacy SSE and provider auth (`auth`) are rejected.
+- Every server: `description`, `enabled`, `timeout` (positive seconds), `exposure` (`codemode` (default), `codemode-deferred`, `deferred`, `direct`, `hidden`), and `toolExposure` (exact tool names or `*` patterns to an exposure).
+
+Values are validated at load time and resolved in the bot process when a transport is created:
+
+- `env` and `headers` values expand `$NAME` and `${NAME}` from the bot process environment; `$$` gives `$` and `$!` gives `!`. A missing variable fails that server.
+- A value starting with `!` runs the rest as a shell command (10 second timeout) and uses its trimmed output. A failure or empty output reports only `command failed`, never the command or its output.
+- `~` and `~/` in `command`, `args`, and `cwd` name the bot user's home directory; a relative `cwd` resolves against the session `cwd`.
+
+These are trusted operator settings: commands run with the bot's privileges.
+
+#### OAuth credentials and security boundary
+
+HTTP servers without an `Authorization` header (any capitalization) use the SDK's OAuth credential store, `mcp-auth.json` in Pi's agent directory (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`). Credentials are selected by server name and URL, so log in on the host with a Pi entry of the same name and URL (`pi mcp login <server>`), and set the same `PI_CODING_AGENT_DIR` for the login and the bot if it is not the default. Stored access tokens are reused, expiring or rejected tokens are refreshed, and rotated tokens are saved back through the SDK's refresh lock, so the directory must be writable. An explicit `Authorization` header always takes precedence over stored OAuth tokens.
+
+MCP connections never start a browser sign-in. Missing or revoked credentials are reported as `<server>: needs sign-in` through `notify`; complete the login on the host. Per the SDK, a session waiting for sign-in reconnects on a later turn once the stored credentials change; restarting the bot also picks them up. Sharing the store does not load personal servers, but it does share authority: every chat that can reach a configured server acts with the logged-in account, not per platform user. Keep tokens out of the bot's `mcp.json` so refreshes do not require editing it.
+
+MCP servers run in the bot process environment, outside any Docker workspace sandbox: stdio servers are host processes with the bot's privileges, and HTTP URLs are resolved from the bot process. Server log notifications are appended to `mcpLogPath`.
+
+#### Bot migration
+
+The Telegram, Discord, and Slack bots still carry their own `mcp.ts` and session wiring; moving them to this module is a separate change per bot. This module follows the Telegram `wip/mcp-oauth` behavior, so bots that still reject `oauth` and disable the credential store will start accepting OAuth settings and using stored credentials when they migrate.
 
 ### Workspace bootstrap files
 
@@ -187,7 +300,7 @@ What each bot repo owns:
 
 ## Runtime requirements
 
-Consumers must provide `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-coding-agent` matching the `^1.5.0` peer dependency ranges. Development installs use the same SDK range.
+Consumers must provide `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-mcp` matching the `^1.5.0` peer dependency ranges. Development installs use the same SDK range.
 
 Tool parameter schemas use `@earendil-works/pi-schema` instead of a direct TypeBox dependency. Built-in schemas use `obj(properties, { open: true })` to preserve their acceptance of extra fields; required fields, optional fields, descriptions, and numeric bounds are unchanged. Pi SDK 1.5 validates and coerces tool arguments with pi-schema, including its validation error messages. `pi-coding-agent` still brings TypeBox as a transitive dependency for extension compatibility.
 
@@ -222,6 +335,8 @@ bun run typecheck
 bun test
 ```
 
-`typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI.
+`typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI, as well as the Codemode/MCP tests and their fixtures.
+
+The Codemode/MCP tests run real stdio and streamable HTTP fixture servers and a local OAuth server, with `HOME`, `PI_CODING_AGENT_DIR`, credential, and log paths in temporary directories. They drive tool calls through the SDK tool pipeline with synthetic assistant messages and never call a model.
 
 No build step — consumers import `src/*.ts` directly (Bun / tsc bundler mode). Subpath exports in `package.json` map each module to its source file.

@@ -18,5 +18,13 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true
   },
-  "include": ["src/**/*", "tests/tool-schemas.test.ts"]
+  "include": [
+    "src/**/*",
+    "tests/tool-schemas.test.ts",
+    "tests/agent-extensions.test.ts",
+    "tests/mcp-config.test.ts",
+    "tests/mcp-oauth.test.ts",
+    "tests/helpers/**/*",
+    "tests/fixtures/**/*"
+  ]
 }
