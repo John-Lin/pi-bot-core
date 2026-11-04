@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./sandbox": "./src/sandbox.ts",
     "./agent-settings": "./src/agent-settings.ts",
+    "./agent-extensions": "./src/agent-extensions.ts",
     "./tools": "./src/tools/index.ts",
     "./fs-watch": "./src/fs-watch.ts",
     "./workspace": "./src/workspace.ts",
