@@ -172,7 +172,9 @@ await session.bindExtensions({
 
 // Before each prompt: build the platform prompt, ending with `\n\n## Live State\n...`.
 turnSystemPrompt = buildSystemPrompt(/* ... */);
-await session.prompt(text);
+// `prefixedText` is the chat message already prefixed with timestamp and sender, as the
+// current bots do; never pass raw user text (a leading `/` would dispatch SDK commands).
+await session.prompt(prefixedText);
 
 // Chat teardown, in this order:
 await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
@@ -193,7 +195,7 @@ Caller contract:
 - Call `session.bindExtensions()`; MCP servers start connecting in the background on `session_start`. Startup problems (failed connections, invalid header or env values, servers needing sign-in) arrive once through `uiContext.notify(message, "warning")` with the SDK's `Run /mcp to fix.` hint, which the bot should rewrite for its operators. Extension handler failures arrive through `onError`.
 - On teardown, emit `session_shutdown` first (the SDK MCP extension stops its connections), then `await close()`, then dispose the session. `AgentSession.dispose()` does not emit `session_shutdown` by itself.
 - The bot owns the config path and when it is loaded, its platform tools and prompt content, visible filesystem paths, user commands and messages, notification wording, and creation, abort, and disposal of each session.
-- The SDK MCP extension registers a `/mcp` command. `session.prompt()` dispatches text starting with `/` to extension commands unless `expandPromptTemplates` is `false`, and `/mcp login` would start a browser sign-in on the bot host. Never pass unprefixed chat text that way; the current bots prefix every message with a timestamp and sender.
+- The SDK MCP extension registers a `/mcp` command; this module leaves that SDK behavior unchanged. `session.prompt()` dispatches text starting with `/` to extension commands unless `expandPromptTemplates` is `false`, and `/mcp login` would start a browser sign-in on the bot host. Never pass unprefixed chat text that way; the current bots prefix every message with a timestamp and sender.
 
 #### Configuration
 
