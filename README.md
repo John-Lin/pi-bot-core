@@ -46,6 +46,8 @@ All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and dro
 
 Immediate events tolerate short outages: files last modified within five minutes before the `EventsWatcher` was constructed (including the cutoff) are dispatched during startup; older files are deleted without dispatch. The existing per-target limit of five in-flight dispatcher calls still applies, and files are deleted before dispatch with no retry on dispatcher failure.
 
+`EventsWatcher.stop()` prevents new dispatch, scheduling, and file side effects from stopped work, including pending reads and parse retries. A restart owns a new lifecycle, so old callbacks and dispatcher cleanup cannot alter its schedules or queue depth. Dispatcher I/O that already began is not cancelled or awaited by `stop()`; it may finish after a restart. The five-call limit is per active lifecycle, not a cap across calls still finishing from a stopped lifecycle. Calling `start()` while already active is a no-op.
+
 ## Usage
 
 ### Host mode
