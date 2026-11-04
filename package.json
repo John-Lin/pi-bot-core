@@ -12,6 +12,7 @@
     "./tools": "./src/tools/index.ts",
     "./fs-watch": "./src/fs-watch.ts",
     "./workspace": "./src/workspace.ts",
+    "./workspace-bootstrap": "./src/workspace-bootstrap.ts",
     "./events": "./src/events.ts",
     "./log": "./src/log.ts",
     "./download-queue": "./src/download-queue.ts",
