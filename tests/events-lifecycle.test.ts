@@ -40,6 +40,7 @@ let warnings: string[];
 let parsed: string[];
 let parseAttempt: ReturnType<typeof deferred>;
 let dispatcherDone: ReturnType<typeof deferred> | undefined;
+let dispatcherGates: Set<ReturnType<typeof deferred>>;
 let readSpy: ReturnType<typeof spyOn<typeof fsPromises, "readFile">> | undefined;
 let fileWork: ReturnType<typeof spyOn<WatcherWork, "handleFile">>;
 let dispatchWork: ReturnType<typeof spyOn<WatcherWork, "execute">>;
@@ -54,12 +55,14 @@ beforeEach(() => {
 	parsed = [];
 	parseAttempt = deferred();
 	dispatcherDone = undefined;
+	dispatcherGates = new Set();
 	readGates = [];
 	watcher = new EventsWatcher<TestEvent>(
 		eventsDir,
 		async (event) => {
 			dispatched.push(event);
 			appendFileSync(join(eventsDir, "dispatch.log"), `${event.name}\n`);
+			if (dispatcherDone) dispatcherGates.add(dispatcherDone);
 			await dispatcherDone?.promise;
 		},
 		{
@@ -81,16 +84,19 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	watcher.stop();
-	for (const gate of readGates) gate.resolve();
-	dispatcherDone?.resolve();
-	await settleFiles();
-	await settleDispatches();
-	readSpy?.mockRestore();
-	readSpy = undefined;
-	fileWork.mockRestore();
-	dispatchWork.mockRestore();
-	rmSync(tempDir, { recursive: true, force: true });
+	try {
+		watcher.stop();
+		for (const gate of readGates) gate.resolve();
+		for (const gate of dispatcherGates) gate.resolve();
+		await settleFiles();
+		await settleDispatches();
+	} finally {
+		readSpy?.mockRestore();
+		readSpy = undefined;
+		fileWork.mockRestore();
+		dispatchWork.mockRestore();
+		rmSync(tempDir, { recursive: true, force: true });
+	}
 });
 
 function writeEvent(filename: string, event: Partial<TestEvent> = {}): string {
