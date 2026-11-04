@@ -103,6 +103,8 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 	private watcherRetryTimer: NodeJS.Timeout | null = null;
 	private knownFiles: Set<string> = new Set();
 	private stopped = true;
+	/** Identifies the start/stop lifecycle that owns asynchronous work. */
+	private generation = 0;
 	/** Per-target queue depth, capped by MAX_QUEUED to bound spam. */
 	private queueDepth: Map<string | number, number> = new Map();
 	private log: EventsLogger;
@@ -117,18 +119,24 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 	}
 
 	start(): void {
-		this.stopped = false;
+		if (!this.stopped) return;
 
 		if (!existsSync(this.eventsDir)) {
 			mkdirSync(this.eventsDir, { recursive: true });
 		}
 
 		this.log.info(`Events watcher starting, dir: ${this.eventsDir}`);
-		this.scanExisting();
-		this.startFsWatcher();
+		this.stopped = false;
+		const generation = ++this.generation;
+		this.scanExisting(generation);
+		this.startFsWatcher(generation);
 		this.log.info(`Events watcher started, tracking ${this.knownFiles.size} files`);
 	}
 
+	/**
+	 * Prevent new dispatch, scheduling, and file side effects from this lifecycle.
+	 * Dispatcher I/O already started is not cancelled; its cleanup cannot affect a restart.
+	 */
 	stop(): void {
 		this.stopped = true;
 
@@ -153,46 +161,55 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		this.log.info("Events watcher stopped");
 	}
 
-	private startFsWatcher(): void {
+	private isActive(generation: number): boolean {
+		return !this.stopped && generation === this.generation;
+	}
+
+	private startFsWatcher(generation: number): void {
+		if (!this.isActive(generation)) return;
 		this.watcher = watchWithErrorHandler(
 			this.eventsDir,
 			(_eventType, filename) => {
 				if (!filename || !filename.endsWith(".json")) return;
-				this.debounce(filename, () => this.handleFileChange(filename));
+				this.debounce(filename, generation, () => this.handleFileChange(filename, generation));
 			},
-			() => this.handleFsWatcherError(),
+			() => this.handleFsWatcherError(generation),
 		);
 	}
 
-	private handleFsWatcherError(): void {
+	private handleFsWatcherError(generation: number): void {
+		if (!this.isActive(generation)) return;
 		closeWatcher(this.watcher);
 		this.watcher = null;
-		this.scheduleFsWatcherRetry();
+		this.scheduleFsWatcherRetry(generation);
 	}
 
-	private scheduleFsWatcherRetry(): void {
-		if (this.stopped || this.watcherRetryTimer) return;
+	private scheduleFsWatcherRetry(generation: number): void {
+		if (!this.isActive(generation) || this.watcherRetryTimer) return;
 		this.watcherRetryTimer = setTimeout(() => {
+			if (!this.isActive(generation)) return;
 			this.watcherRetryTimer = null;
-			if (this.stopped) return;
-			this.startFsWatcher();
-			if (this.watcher) this.rescanExisting();
+			this.startFsWatcher(generation);
+			if (this.watcher) this.rescanExisting(generation);
 		}, FS_WATCH_RETRY_DELAY_MS);
 	}
 
-	private debounce(filename: string, fn: () => void): void {
+	private debounce(filename: string, generation: number, fn: () => void): void {
+		if (!this.isActive(generation)) return;
 		const existing = this.debounceTimers.get(filename);
 		if (existing) clearTimeout(existing);
 		this.debounceTimers.set(
 			filename,
 			setTimeout(() => {
+				if (!this.isActive(generation)) return;
 				this.debounceTimers.delete(filename);
 				fn();
 			}, DEBOUNCE_MS),
 		);
 	}
 
-	private scanExisting(): void {
+	private scanExisting(generation: number): void {
+		if (!this.isActive(generation)) return;
 		let files: string[];
 		try {
 			files = readdirSync(this.eventsDir).filter((f) => f.endsWith(".json"));
@@ -200,10 +217,11 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 			this.log.warn("Failed to read events directory", String(err));
 			return;
 		}
-		for (const filename of files) this.handleFile(filename);
+		for (const filename of files) this.handleFile(filename, generation);
 	}
 
-	private rescanExisting(): void {
+	private rescanExisting(generation: number): void {
+		if (!this.isActive(generation)) return;
 		let files: string[];
 		try {
 			files = readdirSync(this.eventsDir).filter((f) => f.endsWith(".json"));
@@ -212,21 +230,22 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 			return;
 		}
 		const currentFiles = new Set(files);
-		for (const filename of files) this.handleFileChange(filename);
+		for (const filename of files) this.handleFileChange(filename, generation);
 		for (const filename of Array.from(this.knownFiles)) {
 			if (!currentFiles.has(filename)) this.handleDelete(filename);
 		}
 	}
 
-	private handleFileChange(filename: string): void {
+	private handleFileChange(filename: string, generation: number): void {
+		if (!this.isActive(generation)) return;
 		const filePath = join(this.eventsDir, filename);
 		if (!existsSync(filePath)) {
 			this.handleDelete(filename);
 		} else if (this.knownFiles.has(filename)) {
 			this.cancelScheduled(filename);
-			this.handleFile(filename);
+			this.handleFile(filename, generation);
 		} else {
-			this.handleFile(filename);
+			this.handleFile(filename, generation);
 		}
 	}
 
@@ -250,7 +269,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private async handleFile(filename: string): Promise<void> {
+	private async handleFile(filename: string, generation: number): Promise<void> {
 		const filePath = join(this.eventsDir, filename);
 
 		// Parse with retries — fs.watch may fire mid-write.
@@ -258,16 +277,20 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		let lastError: Error | null = null;
 
 		for (let i = 0; i < MAX_RETRIES; i++) {
+			if (!this.isActive(generation)) return;
 			try {
 				const content = await readFile(filePath, "utf-8");
+				if (!this.isActive(generation)) return;
 				event = this.policy.parse(content, filename);
 				break;
 			} catch (err) {
+				if (!this.isActive(generation)) return;
 				lastError = err instanceof Error ? err : new Error(String(err));
 				if (i < MAX_RETRIES - 1) await sleep(RETRY_BASE_MS * 2 ** i);
 			}
 		}
 
+		if (!this.isActive(generation)) return;
 		if (!event) {
 			this.log.warn(
 				`Failed to parse event file after ${MAX_RETRIES} retries: ${filename}`,
@@ -281,18 +304,18 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 
 		switch (event.type) {
 			case "immediate":
-				this.handleImmediate(filename, event);
+				this.handleImmediate(filename, event, generation);
 				break;
 			case "one-shot":
-				this.handleOneShot(filename, event);
+				this.handleOneShot(filename, event, generation);
 				break;
 			case "periodic":
-				this.handlePeriodic(filename, event);
+				this.handlePeriodic(filename, event, generation);
 				break;
 		}
 	}
 
-	private handleImmediate(filename: string, event: TEvent): void {
+	private handleImmediate(filename: string, event: TEvent, generation: number): void {
 		const filePath = join(this.eventsDir, filename);
 		// Allow recent pre-start signals so short outages don't discard them.
 		try {
@@ -306,10 +329,10 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 			return;
 		}
 		this.log.info(`Executing immediate event: ${filename}`);
-		void this.execute(filename, event);
+		void this.execute(filename, event, generation);
 	}
 
-	private handleOneShot(filename: string, event: TEvent): void {
+	private handleOneShot(filename: string, event: TEvent, generation: number): void {
 		if (!event.at) {
 			this.log.warn(`One-shot event missing 'at', deleting: ${filename}`);
 			this.deleteFile(filename);
@@ -325,14 +348,15 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		const delay = atTime - now;
 		this.log.info(`Scheduling one-shot event: ${filename} in ${Math.round(delay / 1000)}s`);
 		const timer = setTimeout(() => {
+			if (!this.isActive(generation)) return;
 			this.timers.delete(filename);
 			this.log.info(`Executing one-shot event: ${filename}`);
-			void this.execute(filename, event);
+			void this.execute(filename, event, generation);
 		}, delay);
 		this.timers.set(filename, timer);
 	}
 
-	private handlePeriodic(filename: string, event: TEvent): void {
+	private handlePeriodic(filename: string, event: TEvent, generation: number): void {
 		if (!event.schedule || !event.timezone) {
 			this.log.warn(`Periodic event missing schedule/timezone, deleting: ${filename}`);
 			this.deleteFile(filename);
@@ -340,8 +364,9 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 		try {
 			const cron = new Cron(event.schedule, { timezone: event.timezone }, () => {
+				if (!this.isActive(generation)) return;
 				this.log.info(`Executing periodic event: ${filename}`);
-				void this.execute(filename, event, false);
+				void this.execute(filename, event, generation, false);
 			});
 			this.crons.set(filename, cron);
 			const next = cron.nextRun();
@@ -354,7 +379,8 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private async execute(filename: string, event: TEvent, deleteAfter: boolean = true): Promise<void> {
+	private async execute(filename: string, event: TEvent, generation: number, deleteAfter: boolean = true): Promise<void> {
+		if (!this.isActive(generation)) return;
 		const scheduleInfo =
 			event.type === "immediate"
 				? "immediate"
@@ -384,9 +410,11 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 				err instanceof Error ? err.message : String(err),
 			);
 		} finally {
-			const remaining = (this.queueDepth.get(key) ?? 1) - 1;
-			if (remaining <= 0) this.queueDepth.delete(key);
-			else this.queueDepth.set(key, remaining);
+			if (this.isActive(generation)) {
+				const remaining = (this.queueDepth.get(key) ?? 1) - 1;
+				if (remaining <= 0) this.queueDepth.delete(key);
+				else this.queueDepth.set(key, remaining);
+			}
 		}
 	}
 
