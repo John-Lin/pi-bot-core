@@ -138,9 +138,9 @@ const mcp = loadBotMcpConfig("config/mcp.json");
 // Per chat session:
 let turnSystemPrompt = "";
 const extensions = createBotAgentExtensions({
-  name: "telegram",                                   // labels the inline extensions in SDK errors
+  name: "example-bot",                                // labels the inline extensions in SDK errors
   mcp,
-  mcpLogPath: join(homedir(), ".pi", "pi-telegram-bot", "mcp.log"),
+  mcpLogPath: join(homedir(), ".pi", "example-bot", "mcp.log"),
   systemPrompt: () => turnSystemPrompt,               // platform-built prompt for the starting turn
 });
 const resourceLoader = new DefaultResourceLoader({
@@ -175,8 +175,8 @@ await session.bindExtensions({
 
 // Before each prompt: build the platform prompt, ending with `\n\n## Live State\n...`.
 turnSystemPrompt = buildSystemPrompt(/* ... */);
-// `prefixedText` is the chat message already prefixed with timestamp and sender, as the
-// current bots do; never pass raw user text (a leading `/` would dispatch SDK commands).
+// Prefix chat messages with trusted timestamp and sender metadata before forwarding them.
+// Never pass raw user text here: a leading `/` would dispatch SDK commands.
 await session.prompt(prefixedText);
 
 // Chat teardown, in this order:
@@ -198,7 +198,7 @@ Caller contract:
 - Call `session.bindExtensions()`; MCP servers start connecting in the background on `session_start`. Startup problems (failed connections, invalid header or env values, servers needing sign-in) arrive once through `uiContext.notify(message, "warning")` with the SDK's `Run /mcp to fix.` hint, which the bot should rewrite for its operators. Extension handler failures arrive through `onError`.
 - On teardown, emit `session_shutdown` first (the SDK MCP extension stops its connections), then `await close()`, then dispose the session. `AgentSession.dispose()` does not emit `session_shutdown` by itself.
 - The bot owns the config path and when it is loaded, its platform tools and prompt content, visible filesystem paths, user commands and messages, notification wording, and creation, abort, and disposal of each session.
-- The SDK MCP extension registers a `/mcp` command; this module leaves that SDK behavior unchanged. `session.prompt()` dispatches text starting with `/` to extension commands unless `expandPromptTemplates` is `false`, and `/mcp login` would start a browser sign-in on the bot host. Never pass unprefixed chat text that way; the current bots prefix every message with a timestamp and sender.
+- The SDK MCP extension registers a `/mcp` command; this module leaves that SDK behavior unchanged. `session.prompt()` dispatches text starting with `/` to extension commands unless `expandPromptTemplates` is `false`, and `/mcp login` would start a browser sign-in on the bot host. Prefix user-controlled chat messages with trusted timestamp and sender metadata before forwarding them to prevent accidental SDK command dispatch.
 
 #### Configuration
 
@@ -224,10 +224,6 @@ MCP connections never start a browser sign-in. Missing or revoked credentials ar
 
 MCP servers run in the bot process environment, outside any Docker workspace sandbox: stdio servers are host processes with the bot's privileges, and HTTP URLs are resolved from the bot process. Server log notifications are appended to `mcpLogPath`.
 
-#### Bot migration
-
-The Telegram, Discord, and Slack bots still carry their own `mcp.ts` and session wiring; moving them to this module is a separate change per bot. This module follows the Telegram `wip/mcp-oauth` behavior, so bots that still reject `oauth` and disable the credential store will start accepting OAuth settings and using stored credentials when they migrate.
-
 ### Shared progress (`pi-bot-core/progress`)
 
 `ProgressTracker` is a small, platform-independent state/rendering module, available only from this subpath. It has no SDK or platform imports and performs no I/O. Create a fresh tracker for each bot run and discard it when that run finishes.
@@ -237,22 +233,22 @@ import { ProgressTracker, type ProgressEvent } from "pi-bot-core/progress";
 
 const progress = new ProgressTracker();
 const events: ProgressEvent[] = [
-  { type: "tool_start", toolName: "codemode", toolCallId: "batch" },
-  { type: "tool_start", toolName: "bash", toolCallId: "telegram", parentToolCallId: "batch", label: "Check Telegram CI" },
-  { type: "tool_start", toolName: "bash", toolCallId: "discord", parentToolCallId: "batch", label: "Check Discord CI" },
-  { type: "tool_start", toolName: "bash", toolCallId: "slack", parentToolCallId: "batch", label: "Check Slack CI" },
-  { type: "tool_end", toolName: "bash", toolCallId: "discord", parentToolCallId: "batch", isError: false, durationMs: 34100 },
-  { type: "tool_end", toolName: "bash", toolCallId: "slack", parentToolCallId: "batch", isError: false, durationMs: 44900 },
+  { type: "tool_start", toolName: "codemode", toolCallId: "call-1" },
+  { type: "tool_start", toolName: "bash", toolCallId: "call-2", parentToolCallId: "call-1", label: "Check dependencies" },
+  { type: "tool_start", toolName: "bash", toolCallId: "call-3", parentToolCallId: "call-1", label: "Run tests" },
+  { type: "tool_start", toolName: "bash", toolCallId: "call-4", parentToolCallId: "call-1", label: "Build project" },
+  { type: "tool_end", toolName: "bash", toolCallId: "call-3", parentToolCallId: "call-1", isError: false, durationMs: 34100 },
+  { type: "tool_end", toolName: "bash", toolCallId: "call-4", parentToolCallId: "call-1", isError: false, durationMs: 44900 },
 ];
 for (const event of events) progress.apply(event);
-const body = progress.render(); // The bot decides whether and when to send/edit this text.
+const body = progress.render(); // The application decides whether and when to send/edit this text.
 ```
 
 ```text
 codemode
-  … bash — Check Telegram CI
-  ✓ bash — Check Discord CI 34.1s
-  ✓ bash — Check Slack CI 44.9s
+  … bash — Check dependencies
+  ✓ bash — Run tests 34.1s
+  ✓ bash — Build project 44.9s
 ```
 
 Codemode remains useful without MCP servers: it batches native tools too. Its wrapper is a heading, while the actual nested calls communicate useful work and each call's execution time. Reading the wrapper's JavaScript or result text is neither necessary nor safe for a chat progress UI. Direct tools outside Codemode still render normally, for example `… read` or `✓ bash — Check CI 120ms`.
@@ -270,7 +266,7 @@ Codemode remains useful without MCP servers: it batches native tools too. Its wr
 | `compaction` | No other fields |
 | `retry` | Required numeric `attempt`, `max` |
 
-Forward starts before their ends. Start identity and parent metadata are authoritative; ends correlate by ID. Ends without a known start are ignored. The first end is terminal: later ends cannot overwrite a failure, replace its duration, or refresh its revision. Duplicate starts are also ignored, including after a completed call leaves the display. IDs must be unique within a run. **Different IDs never merge, even when both tool name and normalized/truncated label are identical.** This intentionally differs from the bots' current label-grouping behavior; there is no compatibility mode.
+Forward starts before their ends. Start identity and parent metadata are authoritative; ends correlate by ID. Ends without a known start are ignored. The first end is terminal: later ends cannot overwrite a failure, replace its duration, or refresh its revision. Duplicate starts are also ignored, including after a completed call leaves the display. IDs must be unique within a run. **Different IDs never merge, even when both tool name and normalized/truncated label are identical.**
 
 Only the exact real tool name `codemode` creates a wrapper. Parent links come exclusively from `parentToolCallId`, never from labels, ID prefixes or whichever wrapper happens to be active. Known ancestor chains are followed through native calls as well. Unknown parents do not produce invented headings; a real parent arriving later can associate retained children.
 
@@ -285,7 +281,7 @@ Only the exact real tool name `codemode` creates a wrapper. Parent links come ex
 - Tool names and labels have whitespace collapsed/trimmed and remaining C0/C1 control characters removed. An absent, blank or equal-to-name label is omitted. The combined `toolName — label` title has a 120-Unicode-code-point budget, ending in `…` when truncated, without splitting surrogate pairs. The name takes priority; omit the label if no space remains for the separator and at least one code point. An empty normalized name displays `tool`. Status, indentation and duration are outside that budget. Wrapper labels are never rendered.
 - Compaction and retry notices retain their existing `… Compacting context` / `… Retrying (1/3)` wording. Each notice event is a distinct revision, with no clock-based identity; this narrow contract has no notice-end events.
 
-Telegram and Slack use `render()` as plain text. Discord can compose its existing escaping without adding a core dependency or changing identity, recency or truncation:
+Use `render()` for plain-text message bodies. For Markdown-enabled channels such as Discord, supply the platform's text escaping function without changing identity, recency or truncation:
 
 ```ts
 import { escapeMarkdown } from "discord.js";
@@ -296,9 +292,9 @@ The callback receives individual text fragments, including **both tool names and
 
 Completed call payloads are retained only for visible rows or as ancestors needed by active/visible calls. Hidden active calls keep their metadata until their ends arrive. Identity-only tombstones (one ID per observed call for the run) are retained separately so arbitrarily late duplicate starts cannot resurrect evicted calls. Thus completed payload history is bounded by the three rows plus necessary ancestor chains, but strict run-wide deduplication still costs O(unique call IDs); discard the tracker at run completion. There is no singleton, timeout, cancellation inference or session lifecycle in this module.
 
-#### Future bot migration (not implemented here)
+#### Connect progress to SDK session events
 
-After John merges and releases core, migrate each bot separately. Its current `src/agent.ts` drops the real tool name, parent ID and duration from progress events; importing this module alone is insufficient. Preserve those fields at the SDK boundary, for example:
+Forward the SDK's tool name, call ID, parent ID and optional duration to a tracker created for the current run. IDs are opaque: preserve their values rather than deriving them from labels or platform names.
 
 ```ts
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -333,9 +329,9 @@ function onSessionEvent(event: AgentSessionEvent): void {
 }
 ```
 
-The installed SDK 1.5 documents `parentToolCallId` on nested start/update/end events and `durationMs` on ends (absent if execution never ran). `tests/progress-sdk.test.ts` verifies the actual nested session events through real native tools and Codemode, including execution failure and pre-execution rejection, with synthetic assistant/tool inputs and isolated agent/auth/log paths. No model, live API or transport mock is needed.
+Pi SDK 1.5 provides `parentToolCallId` on nested tool events and optional `durationMs` on completion events. Duration is absent when execution never ran; preserve that distinction instead of substituting zero.
 
-Replace bot-local progress state/reducers/renderers, not their delivery machinery. Keep SDK subscription, logging, send/edit/delete, debounce/flush, cancellation buttons, run completion, `AgentSession` and shutdown in each bot. Later integration tests must explicitly replace label-grouping expectations with independent same-label IDs, test duplicate same-ID delivery and forwarding of parent/duration metadata, verify Discord escaping for both names and labels, and preserve each bot's cancellation/final-delivery behavior. Bot migrations and unrelated delivery/deferred issues are out of scope for this core change.
+The application owns event subscriptions, logging, message delivery and edits, update throttling, cancellation controls, run completion and session shutdown. Discard the tracker and remove its subscriptions when the run finishes. Rendering produces plain text, not a Markdown code block: client fonts and wrapping determine its appearance, and three status rows may occupy more than three visual lines.
 
 ### Workspace bootstrap files
 
