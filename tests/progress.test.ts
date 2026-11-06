@@ -61,6 +61,20 @@ describe("ProgressTracker public subpath", () => {
 		expect(tracker.render()).toBe("… bash\n… bash\n✗ bash 0ms");
 	});
 
+	test("duplicate delivery cannot refresh recency or change which distinct call is evicted", () => {
+		const tracker = progress(start("a", "read"), start("b", "write"), start("c", "edit"));
+		tracker.apply(start("a", "read"));
+		tracker.apply(start("d", "bash"));
+		expect(tracker.render()).toBe("… write\n… edit\n… bash");
+		tracker.apply(end("a", "read", true));
+		tracker.apply(start("e", "attach"));
+		tracker.apply(end("a", "read", true));
+		tracker.apply(start("f", "schedule_event"));
+		expect(tracker.render()).toBe("✗ read\n… attach\n… schedule_event");
+		tracker.apply(start("g", "chat_history"));
+		expect(tracker.render()).toBe("… attach\n… schedule_event\n… chat_history");
+	});
+
 	test("selects the latest three revisions, preserving visible order and readmitting hidden completions", () => {
 		const tracker = progress(start("a", "read"), start("b", "write"), start("c", "edit"));
 		tracker.apply(end("a", "read"));
@@ -176,6 +190,15 @@ describe("Codemode progress", () => {
 		expect(tracker.render()).toBe("… bash\n… bash\ncodemode\n  ✗ read 4ms");
 	});
 
+	test("readmits parent failure after all successful children have left the display", () => {
+		const tracker = progress(start("p", "codemode"), start("a", "read", undefined, "p"), end("a", "read"));
+		tracker.apply(start("b", "write"));
+		tracker.apply(start("c", "edit"));
+		tracker.apply(start("d", "bash"));
+		tracker.apply(end("p", "codemode", true, 0));
+		expect(tracker.render()).toBe("… edit\n… bash\ncodemode\n  ✗ Script failed 0ms");
+	});
+
 	test("counts script failure and notices as status rows, not headings", () => {
 		expect(progress(
 			start("p", "codemode"), start("a", "read", undefined, "p"), start("b", "write", undefined, "p"),
@@ -189,6 +212,12 @@ describe("progress text boundaries", () => {
 		expect(progress(start("a", "  mcp__host\n__read\u0000 ", "  Inspect\n\t workspace  ")).render())
 			.toBe("… mcp__host __read — Inspect workspace");
 		expect(progress(start("a", "read", " \n\t ")).render()).toBe("… read");
+	});
+
+	test("collapses whitespace made adjacent by removing control characters", () => {
+		expect(progress(start("a", "mcp \u0000 \t read", "Inspect \u0000 \n workspace")).render())
+			.toBe("… mcp read — Inspect workspace");
+		expect(progress(start("b", "\u0000 \n", "\t")).render()).toBe("… tool");
 	});
 
 	test("bounds the combined name/separator/label to 120 Unicode code points", () => {

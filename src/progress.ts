@@ -159,7 +159,7 @@ export class ProgressTracker {
 }
 
 function normalizeText(text: string): string {
-	return text.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim();
+	return text.replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g, "").replace(/\s+/g, " ").trim();
 }
 
 function truncate(text: string, budget: number): string {
