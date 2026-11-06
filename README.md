@@ -246,9 +246,9 @@ const body = progress.render(); // The application decides whether and when to s
 
 ```text
 codemode
-  … bash — Check dependencies
-  ✓ bash — Run tests 34.1s
-  ✓ bash — Build project 44.9s
+… bash — Check dependencies
+✓ bash — Run tests 34.1s
+✓ bash — Build project 44.9s
 ```
 
 Codemode remains useful without MCP servers: it batches native tools too. Its wrapper is a heading, while the actual nested calls communicate useful work and each call's execution time. Reading the wrapper's JavaScript or result text is neither necessary nor safe for a chat progress UI. Direct tools outside Codemode still render normally, for example `… read` or `✓ bash — Check CI 120ms`.
@@ -274,11 +274,11 @@ Only the exact real tool name `codemode` creates a wrapper. Parent links come ex
 
 - Status icons are Unicode `…` (U+2026), `✓` and `✗`. There is no animation, clock, timer or inferred elapsed time.
 - Keep at most the three most recently revised **status rows**, including tool calls, script fallback/failure rows and compaction/retry notices. Completing a visible call refreshes its recency without moving it. A hidden active call's completion is appended and readmitted; the least recently revised row is evicted. Duplicate events do not refresh recency.
-- Headings are extra, unadorned `codemode` lines and do not consume the three-row budget. Only headings needed by visible rows appear, with two-space indentation per Codemode ancestor. Rows are never regrouped/reordered for presentation: interleaved parents (or direct calls between children) can repeat headings. Heading identity is the parent ID, not the heading text, so concurrent wrappers stay separate.
-- Before its first observed child, a wrapper shows `codemode` followed by `  … Script`. Pure JavaScript/no-child success becomes `  ✓ Script`, with its SDK duration if present. The first child replaces that fallback row. Once children exist, parent success adds no row and does not refresh children; a heading itself does not claim the wrapper has finished, even if all visible children already have.
-- Every parent error inserts/updates `  ✗ Script failed`, even with no children or after successful children. Late child starts/ends do not remove it, and duplicate parent success cannot erase it. This generic row has the wrapper's own duration if supplied, not a sum of child durations. Failures can age out under the ordinary recent-three policy; they are not permanently pinned alerts.
+- Headings are extra, unadorned `codemode` lines and do not consume the three-row budget. Only headings needed by visible rows appear. Headings and status rows are left-aligned, including nested calls. Rows are never regrouped/reordered for presentation: interleaved parents (or direct calls between children) can repeat headings. Heading identity is the parent ID, not the heading text, so concurrent wrappers stay separate.
+- Before its first observed child, a wrapper shows `codemode` followed by `… Script`. Pure JavaScript/no-child success becomes `✓ Script`, with its SDK duration if present. The first child replaces that fallback row. Once children exist, parent success adds no row and does not refresh children; a heading itself does not claim the wrapper has finished, even if all visible children already have.
+- Every parent error inserts/updates `✗ Script failed`, even with no children or after successful children. Late child starts/ends do not remove it, and duplicate parent success cannot erase it. This generic row has the wrapper's own duration if supplied, not a sum of child durations. Failures can age out under the ordinary recent-three policy; they are not permanently pinned alerts.
 - Completed tool rows use only the SDK's `durationMs`: below 1000, rounded milliseconds (`0ms`, `13ms`, `999ms`); otherwise one-decimal seconds (`1.0s`, `34.1s`). The threshold uses the unrounded value, so `999.6` renders `1000ms`, matching Pi's Codemode renderer. Undefined duration adds nothing; zero is valid. Running rows never show a duration, and concurrent durations are never summed.
-- Tool names and labels have whitespace collapsed/trimmed and remaining C0/C1 control characters removed. An absent, blank or equal-to-name label is omitted. The combined `toolName — label` title has a 120-Unicode-code-point budget, ending in `…` when truncated, without splitting surrogate pairs. The name takes priority; omit the label if no space remains for the separator and at least one code point. An empty normalized name displays `tool`. Status, indentation and duration are outside that budget. Wrapper labels are never rendered.
+- Tool names and labels have whitespace collapsed/trimmed and remaining C0/C1 control characters removed. An absent, blank or equal-to-name label is omitted. The combined `toolName — label` title has a 120-Unicode-code-point budget, ending in `…` when truncated, without splitting surrogate pairs. The name takes priority; omit the label if no space remains for the separator and at least one code point. An empty normalized name displays `tool`. Status markers and duration are outside that budget. Wrapper labels are never rendered.
 - Compaction and retry notices retain their existing `… Compacting context` / `… Retrying (1/3)` wording. Each notice event is a distinct revision, with no clock-based identity; this narrow contract has no notice-end events.
 
 Use `render()` for plain-text message bodies. For Markdown-enabled channels such as Discord, supply the platform's text escaping function without changing identity, recency or truncation:
@@ -288,7 +288,7 @@ import { escapeMarkdown } from "discord.js";
 const body = progress.render(escapeMarkdown);
 ```
 
-The callback receives individual text fragments, including **both tool names and labels**, after normalization/truncation; core adds icons, indentation, separators and durations. It must preserve the single-line text boundary. Escaping never changes stored state. Core never reads arguments, code, outputs, errors or stacks from an event. Labels are caller-approved purpose text, not automatic secret redaction: never derive them from commands, script source, result bodies or error messages.
+The callback receives individual text fragments, including **both tool names and labels**, after normalization/truncation; core adds headings, icons, separators and durations. It must preserve the single-line text boundary. Escaping never changes stored state. Core never reads arguments, code, outputs, errors or stacks from an event. Labels are caller-approved purpose text, not automatic secret redaction: never derive them from commands, script source, result bodies or error messages.
 
 Completed call payloads are retained only for visible rows or as ancestors needed by active/visible calls. Hidden active calls keep their metadata until their ends arrive. Identity-only tombstones (one ID per observed call for the run) are retained separately so arbitrarily late duplicate starts cannot resurrect evicted calls. Thus completed payload history is bounded by the three rows plus necessary ancestor chains, but strict run-wide deduplication still costs O(unique call IDs); discard the tracker at run completion. There is no singleton, timeout, cancellation inference or session lifecycle in this module.
 

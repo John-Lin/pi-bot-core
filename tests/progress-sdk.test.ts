@@ -71,7 +71,7 @@ describe("progress with the installed SDK nested tool pipeline", () => {
 					// Introduce only the actual wrapper from the fixture input, never infer it from an ID prefix.
 					tracker.apply({ type: "tool_start", toolCallId: wrapper.id, toolName: wrapper.name });
 					const duration = (ms: number) => ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
-					expect(tracker.render()).toBe(`codemode\n  ✓ read — Inspect marker ${duration(ends[0]!.durationMs!)}\n  ✗ read — Missing marker ${duration(ends[1]!.durationMs!)}\n  ✗ read — Rejected`);
+					expect(tracker.render()).toBe(`codemode\n✓ read — Inspect marker ${duration(ends[0]!.durationMs!)}\n✗ read — Missing marker ${duration(ends[1]!.durationMs!)}\n✗ read — Rejected`);
 					expect(bot.notifications).toEqual([]);
 					expect(bot.extensionErrors).toEqual([]);
 				} finally {

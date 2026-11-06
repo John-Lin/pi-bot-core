@@ -99,7 +99,7 @@ export class ProgressTracker {
 			let shared = 0;
 			while (shared < headings.length && headings[shared]?.id === previous[shared]?.id) shared++;
 			for (let index = shared; index < headings.length; index++) {
-				rendered.push(`${"  ".repeat(index)}${formatText("codemode")}`);
+				rendered.push(formatText("codemode"));
 			}
 			let title: string;
 			if (line.kind === "notice") {
@@ -113,7 +113,7 @@ export class ProgressTracker {
 			const icon = line.status === "running" ? "…" : line.status === "ok" ? "✓" : "✗";
 			const duration = line.kind === "tool" && line.status !== "running" && line.durationMs !== undefined
 				? ` ${formatDuration(line.durationMs)}` : "";
-			rendered.push(`${"  ".repeat(headings.length)}${icon} ${title}${duration}`);
+			rendered.push(`${icon} ${title}${duration}`);
 			previous = headings;
 		}
 		return rendered.join("\n");

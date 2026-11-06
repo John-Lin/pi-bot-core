@@ -96,7 +96,7 @@ describe("ProgressTracker public subpath", () => {
 });
 
 describe("Codemode progress", () => {
-	test("renders the approved three-child example with a heading outside the row budget", () => {
+	test("renders three children flush left with a heading outside the row budget", () => {
 		const tracker = progress(
 			start("parent", "codemode", "Do not show wrapper labels"),
 			start("telegram", "bash", "Check Telegram CI", "parent"),
@@ -105,21 +105,21 @@ describe("Codemode progress", () => {
 			end("discord", "bash", false, 34_100),
 			end("slack", "bash", false, 44_900),
 		);
-		expect(tracker.render()).toBe("codemode\n  … bash — Check Telegram CI\n  ✓ bash — Check Discord CI 34.1s\n  ✓ bash — Check Slack CI 44.9s");
+		expect(tracker.render()).toBe("codemode\n… bash — Check Telegram CI\n✓ bash — Check Discord CI 34.1s\n✓ bash — Check Slack CI 44.9s");
 	});
 
 	test("uses a generic script row before the first child and for pure JavaScript success", () => {
 		const tracker = progress(start("parent", "codemode", "return SECRET"));
-		expect(tracker.render()).toBe("codemode\n  … Script");
+		expect(tracker.render()).toBe("codemode\n… Script");
 		tracker.apply(end("parent", "codemode", false, 0));
-		expect(tracker.render()).toBe("codemode\n  ✓ Script 0ms");
+		expect(tracker.render()).toBe("codemode\n✓ Script 0ms");
 	});
 
 	test("replaces the script placeholder with real children and does not refresh them on parent success", () => {
 		const tracker = progress(start("p", "codemode"), start("a", "read", undefined, "p"), end("a", "read", false, 12));
-		expect(tracker.render()).toBe("codemode\n  ✓ read 12ms");
+		expect(tracker.render()).toBe("codemode\n✓ read 12ms");
 		tracker.apply(end("p", "codemode", false, 99));
-		expect(tracker.render()).toBe("codemode\n  ✓ read 12ms");
+		expect(tracker.render()).toBe("codemode\n✓ read 12ms");
 		tracker.apply(start("b", "write"));
 		tracker.apply(start("c", "edit"));
 		tracker.apply(start("d", "bash"));
@@ -133,7 +133,7 @@ describe("Codemode progress", () => {
 			tracker.apply(end("a", "read", false, 1));
 		}
 		tracker.apply(end("p", "codemode", true, 20));
-		const expected = `codemode\n${withChild ? "  ✓ read 1ms\n" : ""}  ✗ Script failed 20ms`;
+		const expected = `codemode\n${withChild ? "✓ read 1ms\n" : ""}✗ Script failed 20ms`;
 		expect(tracker.render()).toBe(expected);
 		tracker.apply(end("p", "codemode", false, 100));
 		tracker.apply(start("p", "codemode"));
@@ -143,12 +143,12 @@ describe("Codemode progress", () => {
 	test("retains parent failure when children start or finish late, within the ordinary row budget", () => {
 		const tracker = progress(start("p", "codemode"), end("p", "codemode", true), start("a", "bash", "late", "p"));
 		tracker.apply(end("a", "bash", false, 8));
-		expect(tracker.render()).toBe("codemode\n  ✗ Script failed\n  ✓ bash — late 8ms");
+		expect(tracker.render()).toBe("codemode\n✗ Script failed\n✓ bash — late 8ms");
 	});
 
 	test("keeps a child failure after parent success", () => {
 		expect(progress(start("p", "codemode"), start("a", "bash", undefined, "p"), end("a", "bash", true), end("p", "codemode")).render())
-			.toBe("codemode\n  ✗ bash");
+			.toBe("codemode\n✗ bash");
 	});
 
 	test("distinguishes concurrent parents by ID, not by the identical heading or child label", () => {
@@ -157,7 +157,7 @@ describe("Codemode progress", () => {
 			start("a", "bash", "Inspect", "p1"), start("b", "bash", "Inspect", "p2"),
 			start("c", "read", undefined, "p1"), end("b", "bash", true),
 		);
-		expect(tracker.render()).toBe("codemode\n  … bash — Inspect\ncodemode\n  ✗ bash — Inspect\ncodemode\n  … read");
+		expect(tracker.render()).toBe("codemode\n… bash — Inspect\ncodemode\n✗ bash — Inspect\ncodemode\n… read");
 	});
 
 	test("follows known parent chains through native tools and nested Codemode without reordering rows", () => {
@@ -165,21 +165,21 @@ describe("Codemode progress", () => {
 			start("p", "codemode"), start("a", "bash", undefined, "p"),
 			start("b", "read", undefined, "a"), start("nested", "codemode", undefined, "p"),
 			start("c", "write", undefined, "nested"),
-		).render()).toBe("codemode\n  … bash\n  … read\n  codemode\n    … write");
+		).render()).toBe("codemode\n… bash\n… read\ncodemode\n… write");
 	});
 
 	test("does not invent a Codemode parent for unknown parents, matching labels or ID prefixes", () => {
 		expect(progress(
 			start("p", "codemode"), start("p/1", "read"),
 			start("other", "bash", "codemode", "unknown"),
-		).render()).toBe("codemode\n  … Script\n… read\n… bash — codemode");
+		).render()).toBe("codemode\n… Script\n… read\n… bash — codemode");
 	});
 
 	test("associates a visible child when its actual parent arrives later", () => {
 		const tracker = progress(start("a", "read", undefined, "p"));
 		expect(tracker.render()).toBe("… read");
 		tracker.apply(start("p", "codemode"));
-		expect(tracker.render()).toBe("codemode\n  … read");
+		expect(tracker.render()).toBe("codemode\n… read");
 	});
 
 	test("hides headings without visible rows and restores the right heading for a late completion", () => {
@@ -187,7 +187,7 @@ describe("Codemode progress", () => {
 		expect(tracker.render()).toBe("… bash\n… bash\n… bash");
 		tracker.apply(end("p", "codemode"));
 		tracker.apply(end("a", "read", true, 4));
-		expect(tracker.render()).toBe("… bash\n… bash\ncodemode\n  ✗ read 4ms");
+		expect(tracker.render()).toBe("… bash\n… bash\ncodemode\n✗ read 4ms");
 	});
 
 	test("readmits parent failure after all successful children have left the display", () => {
@@ -196,14 +196,14 @@ describe("Codemode progress", () => {
 		tracker.apply(start("c", "edit"));
 		tracker.apply(start("d", "bash"));
 		tracker.apply(end("p", "codemode", true, 0));
-		expect(tracker.render()).toBe("… edit\n… bash\ncodemode\n  ✗ Script failed 0ms");
+		expect(tracker.render()).toBe("… edit\n… bash\ncodemode\n✗ Script failed 0ms");
 	});
 
 	test("counts script failure and notices as status rows, not headings", () => {
 		expect(progress(
 			start("p", "codemode"), start("a", "read", undefined, "p"), start("b", "write", undefined, "p"),
 			end("a", "read"), end("b", "write"), end("p", "codemode", true), { type: "compaction" },
-		).render()).toBe("codemode\n  ✓ write\n  ✗ Script failed\n… Compacting context");
+		).render()).toBe("codemode\n✓ write\n✗ Script failed\n… Compacting context");
 	});
 });
 
@@ -238,8 +238,8 @@ describe("progress text boundaries", () => {
 	test("composes platform escaping for both names and labels after truncation without changing state", () => {
 		const tracker = progress(start("p", "codemode"), start("a", "mcp__host__read", "Inspect *CI*", "p"));
 		const escapeMarkdown = (text: string) => text.replace(/([_*])/g, "\\$1");
-		expect(tracker.render(escapeMarkdown)).toBe("codemode\n  … mcp\\_\\_host\\_\\_read — Inspect \\*CI\\*");
-		expect(tracker.render()).toBe("codemode\n  … mcp__host__read — Inspect *CI*");
+		expect(tracker.render(escapeMarkdown)).toBe("codemode\n… mcp\\_\\_host\\_\\_read — Inspect \\*CI\\*");
+		expect(tracker.render()).toBe("codemode\n… mcp__host__read — Inspect *CI*");
 		const long = progress(start("b", "read", "_".repeat(140)));
 		expect(long.render(escapeMarkdown)).toBe(`… read — ${"\\_".repeat(112)}…`);
 	});
@@ -250,7 +250,7 @@ describe("progress text boundaries", () => {
 		const unsafeEnd = { ...end("p", "codemode", true), result: "SECRET_RESULT", error: "SECRET_STACK" };
 		tracker.apply(unsafeStart);
 		tracker.apply(unsafeEnd);
-		expect(tracker.render()).toBe("codemode\n  ✗ Script failed");
+		expect(tracker.render()).toBe("codemode\n✗ Script failed");
 	});
 });
 
@@ -264,7 +264,7 @@ describe("progress history cleanup", () => {
 		// Inspect retained real state: completed payloads must not accumulate behind the UI cap.
 		expect(tracker["calls"].size).toBe(6);
 		tracker.apply(end("child", "bash", true, 7));
-		expect(tracker.render()).toBe("✓ bash\n✓ bash\ncodemode\n  ✗ bash — Inspect 7ms");
+		expect(tracker.render()).toBe("✓ bash\n✓ bash\ncodemode\n✗ bash — Inspect 7ms");
 		for (let i = 0; i < 3; i++) tracker.apply({ type: "compaction" });
 		expect(tracker["calls"].size).toBe(0);
 		const before = tracker.render();
