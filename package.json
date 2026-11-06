@@ -16,6 +16,7 @@
     "./workspace-bootstrap": "./src/workspace-bootstrap.ts",
     "./events": "./src/events.ts",
     "./log": "./src/log.ts",
+    "./progress": "./src/progress.ts",
     "./download-queue": "./src/download-queue.ts",
     "./message-log": "./src/message-log.ts",
     "./system-prompt": "./src/system-prompt.ts",
