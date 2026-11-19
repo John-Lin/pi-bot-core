@@ -259,7 +259,7 @@ ${skills.length > 0 ? formatSkillsForPrompt(skills) : "(no skills installed yet)
 - Webhook signal: \`{type:"immediate", ${ev.idFieldName}:${ev.idLiteral}, text:"New GitHub issue opened"}\`
 
 ### Listing / cancelling
-${isGondolin ? "Schedule files are host-managed and cannot be accessed from the VM." : `- List: \`ls ${workspacePath}/events/\`
+${isGondolin ? "Schedule files are host-managed. You cannot list or cancel events from the VM." : `- List: \`ls ${workspacePath}/events/\`
 - View: \`cat ${workspacePath}/events/foo.json\`
 - Cancel: \`rm ${workspacePath}/events/foo.json\` (one-shots and periodics persist as files; immediates are deleted on fire)`}
 
@@ -268,10 +268,10 @@ You receive a message like:
 \`\`\`
 [EVENT:dentist-1234.json:one-shot:2026-12-14T09:00:00+08:00] Dentist tomorrow
 \`\`\`
-Immediate and one-shot events auto-delete after firing. Periodic events persist until you delete them.
+Immediate and one-shot events auto-delete after firing. ${isGondolin ? "Periodic events persist until removed by the host operator." : "Periodic events persist until you delete them."}
 
 ### Debouncing
-When you write programs that emit immediate events (email watchers, webhook handlers), debounce. 50 emails arriving in a minute should not produce 50 events — emit one summary event, or use a periodic check instead.
+${isGondolin ? "Create events with \`schedule_event\`. When host or external integrations emit immediate events (email watchers, webhook handlers), debounce." : "When you write programs that emit immediate events (email watchers, webhook handlers), debounce."} 50 emails arriving in a minute should not produce 50 events — emit one summary event, or use a periodic check instead.
 
 ### Limits
 At most 5 events queued per ${noun}. Don't create excessive events.

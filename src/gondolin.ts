@@ -3,8 +3,9 @@ import { randomBytes } from "node:crypto";
 import { lstatSync } from "node:fs";
 import { basename, join, posix } from "node:path";
 import type { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { ReadonlyProvider, RealFSProvider, ShadowProvider, VM } from "@earendil-works/gondolin";
+import { ReadonlyProvider, RealFSProvider, resolveImageSelector, ShadowProvider, VM } from "@earendil-works/gondolin";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
 import type { ChatPaths } from "./workspace.js";
@@ -12,13 +13,9 @@ import type { ChatPaths } from "./workspace.js";
 export const GONDOLIN_IMAGE = "alpine-base:0.3.2";
 export const GONDOLIN_WORKSPACE = "/workspace";
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+const IMAGE_PREPARE_TIMEOUT_MS = 120_000;
 const runFile = promisify(execFile);
-
-const sandboxOptions = {
-	vmm: "qemu",
-	imagePath: GONDOLIN_IMAGE,
-	netEnabled: false,
-} as const;
+type FinishSlot = (failure?: Error) => void;
 
 /** Check native dependencies and cache the pinned image without booting a guest. */
 export async function validateGondolinSandbox(): Promise<void> {
@@ -33,15 +30,20 @@ export async function validateGondolinSandbox(): Promise<void> {
 		}
 	}
 	try {
-		await (await VM.create({ autoStart: false, sandbox: sandboxOptions, vfs: null })).close();
+		// Run the pull in its own process because the SDK's image fetch has no AbortSignal.
+		const cli = fileURLToPath(new URL("./dist/bin/gondolin.js", import.meta.resolve("@earendil-works/gondolin/package.json")));
+		await runFile(process.execPath, [cli, "image", "pull", GONDOLIN_IMAGE], {
+			timeout: IMAGE_PREPARE_TIMEOUT_MS, killSignal: "SIGKILL",
+		});
 	} catch (error) {
-		throw new SandboxConfigError(`Cannot prepare Gondolin image ${GONDOLIN_IMAGE}: ${String(error)}`);
+		throw new SandboxConfigError(`Cannot prepare Gondolin image ${GONDOLIN_IMAGE} (startup budget: ${IMAGE_PREPARE_TIMEOUT_MS / 1000} seconds): ${String(error)}`);
 	}
 }
 
 /** One pool per bot process; a turn does not reserve capacity before its first tool call. */
 export class GondolinSandbox {
 	private active = 0;
+	private failure?: Error;
 	private readonly waiters = new Set<() => void>();
 
 	constructor(private readonly maxConcurrent: number) {
@@ -59,9 +61,11 @@ export class GondolinSandbox {
 		return new GondolinTurn(paths, (signal) => this.acquire(signal));
 	}
 
-	private async acquire(signal: AbortSignal): Promise<() => void> {
-		while (this.active >= this.maxConcurrent) {
+	private async acquire(signal: AbortSignal): Promise<FinishSlot> {
+		while (true) {
 			signal.throwIfAborted();
+			if (this.failure) throw this.failure;
+			if (this.active < this.maxConcurrent) break;
 			await new Promise<void>((resolve, reject) => {
 				const cleanup = () => {
 					signal.removeEventListener("abort", onAbort);
@@ -73,10 +77,11 @@ export class GondolinSandbox {
 				signal.addEventListener("abort", onAbort, { once: true });
 			});
 		}
-		signal.throwIfAborted();
 		this.active++;
-		return () => {
-			this.active--;
+		return (failure) => {
+			// Never reuse capacity when the SDK could not confirm teardown.
+			if (failure) this.failure ??= failure;
+			else this.active--;
 			for (const wake of this.waiters) wake();
 		};
 	}
@@ -88,11 +93,11 @@ export class GondolinTurn implements Executor {
 	private starting?: Promise<VM>;
 	private vm?: VM;
 	private closing?: Promise<void>;
-	private releaseSlot?: () => void;
+	private finishSlot?: FinishSlot;
 
 	constructor(
 		private readonly paths: ChatPaths,
-		private readonly acquire: (signal: AbortSignal) => Promise<() => void>,
+		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
 	) {
 		this.cwd = posix.join(GONDOLIN_WORKSPACE, basename(paths.chatDir));
 	}
@@ -149,12 +154,14 @@ export class GondolinTurn implements Executor {
 
 	private async dispose(): Promise<void> {
 		this.lifetime.abort(new Error("Gondolin turn is closed"));
-		const vm = this.vm;
-		if (vm) await vm.close();
+		try {
+			await this.vm?.close();
+		} catch (cause) {
+			this.finishSlot?.(new Error("Gondolin VM cleanup failed; restart the bot before starting another VM", { cause }));
+			throw cause;
+		}
 		await this.starting?.catch(() => {});
-		// A close during asset resolution may not have had a VM to close yet.
-		if (!vm && this.vm) await this.vm.close();
-		this.releaseSlot?.();
+		this.finishSlot?.();
 	}
 
 	private async use<T>(run: (vm: VM, signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -179,11 +186,18 @@ export class GondolinTurn implements Executor {
 
 	private async start(): Promise<VM> {
 		const { paths, cwd } = this;
-		this.releaseSlot = await this.acquire(this.lifetime.signal);
+		// Image downloads belong to startup, never to an active turn or VM lease.
+		let imagePath: string;
+		try {
+			imagePath = resolveImageSelector(GONDOLIN_IMAGE).assetDir;
+		} catch (error) {
+			throw new SandboxConfigError(`Gondolin image ${GONDOLIN_IMAGE} is not available locally; run startup validation: ${String(error)}`);
+		}
+		this.finishSlot = await this.acquire(this.lifetime.signal);
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
-		this.vm = await VM.create({
-			sandbox: sandboxOptions,
+		this.vm = new VM({
+			sandbox: { vmm: "qemu", imagePath, netEnabled: false },
 			startTimeoutMs: 15_000,
 			vfs: {
 				mounts: {

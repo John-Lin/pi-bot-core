@@ -55,6 +55,15 @@ describe("buildBaseSystemPrompt", () => {
 		}
 	});
 
+	test("Gondolin does not promise cancellation from workspace tools", () => {
+		const p = buildBaseSystemPrompt({ ...baseInput, sandbox: { type: "gondolin" } });
+		expect(p).toContain("You cannot list or cancel events from the VM");
+		expect(p).not.toContain("Periodic events persist until you delete them");
+		expect(p).toContain("Create events with `schedule_event`");
+		expect(p).not.toContain("When you write programs that emit immediate events");
+		expect(buildBaseSystemPrompt(baseInput)).toContain("Periodic events persist until you delete them");
+	});
+
 	test("identity line uses botUsername and platform displayName", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p.startsWith("You are pi-bot, an assistant reachable through TestApp.")).toBe(true);

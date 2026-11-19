@@ -20,7 +20,7 @@ The `Executor` abstraction lets the same agent tools work on the host, in a Dock
 
 All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and drop into any Agent session.
 
-- `createBashTool(executor)` — run bash with tail truncation + temp file spill
+- `createBashTool(executor)` — run bash with tail truncation and a spill file when the executor supports it
 - `createReadTool(executor)` — read text files (offset/limit) and images (base64)
 - `createWriteTool(executor)` — write files, creates parent dirs
 - `createEditTool(executor)` — exact-match text replacement with unified diff output
@@ -89,7 +89,7 @@ try {
 }
 ```
 
-Gondolin requires QEMU on macOS or Linux. It uses the pinned `alpine-base:0.3.2` image, with guest networking disabled. The first tool call boots the VM. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM.
+Gondolin requires QEMU on macOS or Linux. It uses the pinned `alpine-base:0.3.2` image, with guest networking disabled. Startup validation prepares the image with a two-minute deadline. The first tool call boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM.
 
 ### From a CLI flag
 
