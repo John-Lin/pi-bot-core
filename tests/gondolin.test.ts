@@ -30,6 +30,20 @@ function openTurn(sandbox: GondolinSandbox, paths = chat): GondolinTurn {
 }
 
 const vmTest = process.env.PI_BOT_TEST_GONDOLIN === "1" ? test : test.skip;
+const publicWebTest = process.env.PI_BOT_TEST_GONDOLIN_WEB === "1" ? test : test.skip;
+
+publicWebTest("allows the public web only for a pool that enables it", async () => {
+	const command = "curl -fsS --max-time 8 https://example.com/";
+	const web = openTurn(new GondolinSandbox(1, { publicWeb: {} }));
+	const result = await web.exec(command, { timeout: 12 });
+	expect(result.code, result.stderr).toBe(0);
+	expect(result.stdout).toContain("Example Domain");
+
+	const offline = openTurn(new GondolinSandbox(1));
+	const blocked = await offline.exec(command, { timeout: 12 });
+	expect(blocked.code).not.toBe(0);
+	expect(blocked.stdout).toBe("");
+}, 30_000);
 
 vmTest("reuses the guest per turn, persists only projected data, and does not expose another chat", async () => {
 	const otherChat = ensureChatDir(workspace, "43");

@@ -47,12 +47,20 @@ describe("buildBaseSystemPrompt", () => {
 	test("Gondolin describes only mounted files and available tools", () => {
 		const p = buildBaseSystemPrompt({ ...baseInput, workspacePath: "/workspace", sandbox: { type: "gondolin" } });
 		expect(p).toContain("Gondolin");
+		expect(p).toContain("no network access");
 		expect(p).toContain("/workspace/r1/scratch");
 		expect(p).toContain("/workspace/r1/MEMORY.md");
 		expect(p).toContain("chat_history");
 		for (const unsupported of ["jq -sc", "apk add", "log.jsonl", "/workspace/events", "/workspace/MEMORY.md", "SYSTEM.md"]) {
 			expect(p).not.toContain(unsupported);
 		}
+	});
+
+	test("describes public web access when the Gondolin pool enables it", () => {
+		const p = buildBaseSystemPrompt({ ...baseInput, sandbox: { type: "gondolin", publicWeb: true } });
+		expect(p).toContain("public HTTP(S)");
+		expect(p).toContain("Private networks");
+		expect(p).not.toContain("no network access");
 	});
 
 	test("Gondolin does not promise cancellation from workspace tools", () => {
