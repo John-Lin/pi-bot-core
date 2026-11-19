@@ -19,11 +19,8 @@ const runFile = promisify(execFile);
 type FinishSlot = (failure?: Error) => void;
 
 export interface GondolinSandboxOptions {
-	/** When set, let guest tools reach public HTTP(S) destinations. Omit for offline turns. */
-	publicWeb?: {
-		/** Expose a placeholder for a host credential scoped to one HTTPS POST and header. */
-		credential?: GondolinWebCredential;
-	};
+	/** Expose a placeholder for a host credential scoped to one HTTPS POST and header. */
+	credential?: GondolinWebCredential;
 }
 
 /** Check native dependencies and cache the pinned image without booting a guest. */
@@ -70,7 +67,7 @@ export class GondolinSandbox {
 		}
 		const memory = lstatSync(paths.memoryFile);
 		if (!memory.isFile() || memory.nlink !== 1) throw new Error("Gondolin MEMORY.md must be an unlinked regular file");
-		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.options.publicWeb);
+		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.options.credential);
 	}
 
 	private async acquire(signal: AbortSignal): Promise<FinishSlot> {
@@ -110,7 +107,7 @@ export class GondolinTurn implements Executor {
 	constructor(
 		private readonly paths: ChatPaths,
 		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
-		private readonly publicWeb?: GondolinSandboxOptions["publicWeb"],
+		private readonly configuredCredential?: GondolinWebCredential,
 	) {
 		this.cwd = posix.join(GONDOLIN_WORKSPACE, basename(paths.chatDir));
 	}
@@ -209,7 +206,7 @@ export class GondolinTurn implements Executor {
 		this.finishSlot = await this.acquire(this.lifetime.signal);
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
-		const configured = this.publicWeb?.credential;
+		const configured = this.configuredCredential;
 		let credential: GondolinWebCredential | undefined;
 		if (configured) {
 			const endpoint = new URL(configured.url);
@@ -223,7 +220,7 @@ export class GondolinTurn implements Executor {
 			onRequest: (request: Request) => applyGondolinCredential(request, credential, placeholder),
 		} : undefined;
 		this.vm = new VM({
-			sandbox: { vmm: "qemu", imagePath, netEnabled: this.publicWeb !== undefined, httpHooks, allowWebSockets: false },
+			sandbox: { vmm: "qemu", imagePath, netEnabled: true, httpHooks, allowWebSockets: false },
 			env: credential && placeholder ? { [credential.env]: placeholder } : undefined,
 			startTimeoutMs: 15_000,
 			vfs: {
