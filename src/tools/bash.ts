@@ -45,15 +45,17 @@ export function createBashTool(executor: Executor): AgentTool<typeof bashSchema>
 			}
 
 			const totalBytes = Buffer.byteLength(output, "utf-8");
+			const truncation = truncateTail(output);
 
-			if (totalBytes > DEFAULT_MAX_BYTES) {
+			if (executor.saveOutput && truncation.truncated) {
+				tempFilePath = await executor.saveOutput(output, signal);
+			} else if (totalBytes > DEFAULT_MAX_BYTES) {
 				tempFilePath = getTempFilePath();
 				const stream = createWriteStream(tempFilePath);
 				stream.write(output);
 				stream.end();
 			}
 
-			const truncation = truncateTail(output);
 			let outputText = truncation.content || "(no output)";
 
 			let details: BashToolDetails | undefined;

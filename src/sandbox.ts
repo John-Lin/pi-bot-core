@@ -106,6 +106,9 @@ export interface Executor {
 	 */
 	exec(command: string, options?: ExecOptions): Promise<ExecResult>;
 
+	/** Store truncated output at a path readable by this executor. */
+	saveOutput?(output: string, signal?: AbortSignal): Promise<string>;
+
 	/**
 	 * Translate a host path into the path the executor sees.
 	 *
