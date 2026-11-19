@@ -43,7 +43,11 @@ export function ensureChatDir(workspace: string, chatId: number | string): ChatP
 }
 
 function touchFile(path: string): void {
-	if (!existsSync(path)) writeFileSync(path, "");
+	try {
+		writeFileSync(path, "", { flag: "wx" });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+	}
 }
 
 /**

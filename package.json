@@ -1,6 +1,6 @@
 {
   "name": "pi-bot-core",
-  "version": "0.7.5",
+  "version": "0.8.0",
   "description": "Shared runtime and building blocks for pi-mono based bots (executor + tools, workspace, events scheduler)",
   "license": "MIT",
   "type": "module",
@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./sandbox": "./src/sandbox.ts",
+    "./gondolin": "./src/gondolin.ts",
     "./agent-settings": "./src/agent-settings.ts",
     "./agent-extensions": "./src/agent-extensions.ts",
     "./tools": "./src/tools/index.ts",
@@ -42,6 +43,7 @@
     "@earendil-works/pi-mcp": "^1.5.0"
   },
   "dependencies": {
+    "@earendil-works/gondolin": "0.14.0",
     "@earendil-works/pi-schema": "^1.5.0",
     "chalk": "^5.6.2",
     "croner": "^10.0.1",

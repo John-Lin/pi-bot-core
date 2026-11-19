@@ -131,17 +131,18 @@ function unsafeWorkspacePathError(): WorkspaceBootstrapSecurityError {
 }
 
 /** Read shared workspace instructions and preferences for each agent run. */
-export function readWorkspaceBootstrap(workspace: string, visibleWorkspace: string): string {
+export function readWorkspaceBootstrap(workspace: string, visibleWorkspace?: string): string {
 	const noFollow = assertNoFollowSupport();
 	const workspaceIdentity = inspectWorkspacePath(workspace);
 	return BOOTSTRAP_FILES.map(([name, tag, , maxChars]) => {
 		const path = join(workspace, name);
+		const label = visibleWorkspace ? `${visibleWorkspace}/${name}` : `${name} (host-managed)`;
 		let content = "";
 		let truncated = false;
 		let fd: number | undefined;
 		try {
 			if (workspaceIdentity === undefined || !workspacePathIsUnchanged(workspaceIdentity)) {
-				return `### ${visibleWorkspace}/${name}\n<${tag}>\n\n</${tag}>`;
+				return `### ${label}\n<${tag}>\n\n</${tag}>`;
 			}
 			// The host assembles this prompt even in Docker mode; read only the opened regular file.
 			fd = openSync(path, constants.O_RDONLY | noFollow | (constants.O_NONBLOCK ?? 0));
@@ -159,8 +160,8 @@ export function readWorkspaceBootstrap(workspace: string, visibleWorkspace: stri
 			if (fd !== undefined) closeSync(fd);
 		}
 		if (truncated) {
-			content = `${content}\n[truncated: read ${visibleWorkspace}/${name} for the rest]`;
+			content += visibleWorkspace ? `\n[truncated: read ${label} for the rest]` : "\n[host-managed file truncated]";
 		}
-		return `### ${visibleWorkspace}/${name}\n<${tag}>\n${content}\n</${tag}>`;
+		return `### ${label}\n<${tag}>\n${content}\n</${tag}>`;
 	}).join("\n\n");
 }

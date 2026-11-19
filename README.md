@@ -4,7 +4,7 @@ Shared runtime and building blocks for pi-mono based bots (e.g. `pi-discord-bot`
 
 Inspired by [pi-mono](https://github.com/badlogic/pi-mono); some modules were originally ported from `pi-mono/packages/mom` and remain MIT-licensed under the original copyright. See `LICENSE`.
 
-The `Executor` abstraction lets the same agent tools work on the host or inside a Docker container without tool changes. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
+The `Executor` abstraction lets the same agent tools work on the host, in a Docker container, or in a turn-scoped Gondolin VM. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
 
 ## Contents
 
@@ -13,13 +13,14 @@ The `Executor` abstraction lets the same agent tools work on the host or inside 
 - `Executor` interface
 - `HostExecutor` — runs commands locally via `sh -c`
 - `DockerExecutor` — runs commands inside a running container via `docker exec ... sh -c`
-- `createExecutor(config)` / `parseSandboxArg(arg)` / `validateSandbox(config)` helpers
+- `createExecutor(config)` / `parseSandboxArg(arg)` / `validateSandbox(config)` for host and Docker
+- `pi-bot-core/gondolin` — `GondolinSandbox` opens a lazy, chat-scoped `Executor` for each agent turn
 
 ### Agent tools (`pi-bot-core/tools`)
 
 All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and drop into any Agent session.
 
-- `createBashTool(executor)` — run bash with tail truncation + temp file spill
+- `createBashTool(executor)` — run bash with tail truncation and a spill file when the executor supports it
 - `createReadTool(executor)` — read text files (offset/limit) and images (base64)
 - `createWriteTool(executor)` — write files, creates parent dirs
 - `createEditTool(executor)` — exact-match text replacement with unified diff output
@@ -69,6 +70,26 @@ const executor = new DockerExecutor("pi-sandbox");
 const tools = createBotTools(executor);
 // all bash/read/write/edit now run inside the `pi-sandbox` container
 ```
+
+### Gondolin sandbox mode
+
+```ts
+import { createBotTools } from "pi-bot-core";
+import { GondolinSandbox, validateGondolinSandbox } from "pi-bot-core/gondolin";
+import { ensureChatDir } from "pi-bot-core/workspace";
+
+await validateGondolinSandbox(); // Once at startup; checks QEMU and prepares the image.
+const sandbox = new GondolinSandbox(2); // Share one instance across the bot.
+const turn = sandbox.turn(ensureChatDir(workspace, chatId));
+try {
+  const tools = createBotTools(turn);
+  // Run the agent with these tools until it is idle.
+} finally {
+  await turn.close();
+}
+```
+
+Gondolin requires QEMU on macOS or Linux. It uses the pinned `alpine-base:0.3.2` image, with guest networking disabled. Startup validation prepares the image with a two-minute deadline. The first tool call boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM.
 
 ### From a CLI flag
 
@@ -396,15 +417,14 @@ const tools = [
 
 What this package owns:
 
-- `Executor` interface + host/docker implementations
+- `Executor` interface + host/Docker implementations and the Gondolin turn lifecycle
 - `SandboxConfig` + parse/validate/create helpers
 
 What each bot repo owns:
 
-- Wiring the CLI flag / env var to `parseSandboxArg`
+- Wiring the CLI flag or environment variable to the chosen backend
 - Container lifecycle scripts (`docker.sh` / Makefile / Dockerfile)
-- System-prompt wording that tells the LLM whether it's on host or in a container
-  (paths, package manager, etc. — see each bot's `buildSystemPrompt`)
+- Choosing the sandbox's scope, closing turns on shutdown, and supplying platform prompt details to `buildBaseSystemPrompt`
 
 ## Runtime requirements
 
@@ -433,7 +453,7 @@ docker run -d --name pi-sandbox \
   alpine:latest tail -f /dev/null
 ```
 
-No new npm dependency for sandboxing — `DockerExecutor` is string wrapping around `docker exec` and reuses `HostExecutor` for the actual child-process work.
+`DockerExecutor` wraps `docker exec` and reuses `HostExecutor` for the actual child-process work.
 
 ## Development
 

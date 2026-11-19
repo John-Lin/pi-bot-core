@@ -58,71 +58,64 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 				};
 			}
 
-			const countResult = await executor.exec(`wc -l < ${shellEscape(path)}`, { signal });
+			if (offset !== undefined && !Number.isSafeInteger(offset)) throw new Error("Read offset must be an integer");
+			if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) throw new Error("Read limit must be a positive integer");
+
+			const file = shellEscape(path);
+			const countResult = await executor.exec(`wc -lc < ${file} && tail -c 1 < ${file}`, { signal });
 			if (countResult.code !== 0) {
 				throw new Error(countResult.stderr || `Failed to read file: ${path}`);
 			}
-			// wc -l counts newlines, not lines, so add 1 for files without a trailing newline.
-			const totalFileLines = Number.parseInt(countResult.stdout.trim(), 10) + 1;
+			const counts = /^\s*(\d+)\s+(\d+)\n/.exec(countResult.stdout);
+			if (!counts) throw new Error(`Failed to count lines and bytes: ${path}`);
+			const totalFileBytes = Number(counts[2]);
+			// wc counts newlines; tail tells us whether the last line is unterminated.
+			const totalFileLines = Number(counts[1]) + Number(totalFileBytes > 0 && !countResult.stdout.endsWith("\n\n"));
 
-			const startLine = offset ? Math.max(1, offset) : 1;
-			const startLineDisplay = startLine;
-
-			if (startLine > totalFileLines) {
+			const startLine = Math.max(1, offset ?? 1);
+			if (startLine > Math.max(1, totalFileLines)) {
 				throw new Error(`Offset ${offset} is beyond end of file (${totalFileLines} lines total)`);
 			}
 
-			const cmd =
-				startLine === 1 ? `cat ${shellEscape(path)}` : `tail -n +${startLine} ${shellEscape(path)}`;
-
+			// Keep a sentinel line/byte beyond the limits, allowing for the final newline.
+			const sampleLines = Math.min(limit ?? DEFAULT_MAX_LINES + 1, DEFAULT_MAX_LINES + 1);
+			const skipLines = startLine === 1 ? "" : `tail -n +${startLine} | `;
+			const cmd = `exec < ${file} || exit $?; ${skipLines}head -n ${sampleLines} | head -c ${DEFAULT_MAX_BYTES + 2}`;
 			const result = await executor.exec(cmd, { signal });
-			if (result.code !== 0) {
+			// Early pipe closure is normal at the cap; upstream utilities report read failures on stderr.
+			if (result.code !== 0 || result.stderr) {
 				throw new Error(result.stderr || `Failed to read file: ${path}`);
 			}
 
-			let selectedContent = result.stdout;
-			let userLimitedLines: number | undefined;
-
-			if (limit !== undefined) {
-				const lines = selectedContent.split("\n");
-				const endLine = Math.min(limit, lines.length);
-				selectedContent = lines.slice(0, endLine).join("\n");
-				userLimitedLines = endLine;
-			}
-
-			const truncation = truncateHead(selectedContent);
-
+			// The final separator does not count as an extra line.
+			const sample = result.stdout.replace(/\n$/, "");
+			const truncation = truncateHead(sample);
+			const details: ReadToolDetails | undefined = truncation.truncated
+				? { truncation: { ...truncation, totalLines: totalFileLines, totalBytes: totalFileBytes } }
+				: undefined;
 			let outputText: string;
-			let details: ReadToolDetails | undefined;
 
 			if (truncation.firstLineExceedsLimit) {
-				// First line at this offset alone exceeds the byte limit; tell the model to fall back to bash.
-				const firstLineSize = formatSize(Buffer.byteLength(selectedContent.split("\n")[0] ?? "", "utf-8"));
-				outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-				details = { truncation };
+				outputText = `[Line ${startLine} exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' < ${shellEscape(path)} | head -c ${DEFAULT_MAX_BYTES}]`;
 			} else if (truncation.truncated) {
-				const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+				const endLineDisplay = startLine + truncation.outputLines - 1;
 				const nextOffset = endLineDisplay + 1;
 
 				outputText = truncation.content;
 
 				if (truncation.truncatedBy === "lines") {
-					outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
+					outputText += `\n\n[Showing lines ${startLine}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
 				} else {
-					outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
+					outputText += `\n\n[Showing lines ${startLine}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
 				}
-				details = { truncation };
-			} else if (userLimitedLines !== undefined) {
-				const linesFromStart = startLine - 1 + userLimitedLines;
-				if (linesFromStart < totalFileLines) {
-					const remaining = totalFileLines - linesFromStart;
-					const nextOffset = startLine + userLimitedLines;
-					outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`;
-				} else {
-					outputText = truncation.content;
-				}
+			} else if (limit !== undefined) {
+				const nextOffset = startLine + limit;
+				const remaining = totalFileLines - nextOffset + 1;
+				outputText = remaining > 0
+					? `${sample}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`
+					: sample;
 			} else {
-				outputText = truncation.content;
+				outputText = Buffer.byteLength(result.stdout) <= DEFAULT_MAX_BYTES ? result.stdout : sample;
 			}
 
 			return {

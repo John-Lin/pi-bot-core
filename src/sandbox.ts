@@ -1,4 +1,8 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Configuration describing where tools should execute.
@@ -106,6 +110,9 @@ export interface Executor {
 	 */
 	exec(command: string, options?: ExecOptions): Promise<ExecResult>;
 
+	/** Store truncated output at a path readable by this executor. */
+	saveOutput?(output: string, signal?: AbortSignal): Promise<string>;
+
 	/**
 	 * Translate a host path into the path the executor sees.
 	 *
@@ -137,6 +144,12 @@ const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
  * Runs commands on the local machine via `sh -c` (or `cmd /c` on Windows).
  */
 export class HostExecutor implements Executor {
+	async saveOutput(output: string, signal?: AbortSignal): Promise<string> {
+		const path = join(tmpdir(), `pi-bot-bash-${randomBytes(8).toString("hex")}.log`);
+		await writeFile(path, output, { signal });
+		return path;
+	}
+
 	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
 		return new Promise((resolve, reject) => {
 			const shell = process.platform === "win32" ? "cmd" : "sh";

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { ensureChatDir, readMemory, readSystemConfig } from "../src/workspace.js";
@@ -25,6 +25,15 @@ describe("ensureChatDir", () => {
 		expect(existsSync(paths.attachmentsDir)).toBe(true);
 		expect(existsSync(paths.scratchDir)).toBe(true);
 		expect(existsSync(paths.skillsDir)).toBe(true);
+	});
+
+	test("does not create a memory file through a dangling symlink", () => {
+		const paths = ensureChatDir(ws, 123);
+		const target = join(ws, "unexpected.txt");
+		rmSync(paths.memoryFile);
+		symlinkSync(target, paths.memoryFile);
+		ensureChatDir(ws, 123);
+		expect(existsSync(target)).toBe(false);
 	});
 
 	test("is idempotent and preserves MEMORY.md content", () => {
