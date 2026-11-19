@@ -39,11 +39,25 @@ publicWebTest("allows the public web only for a pool that enables it", async () 
 	expect(result.code, result.stderr).toBe(0);
 	expect(result.stdout).toContain("Example Domain");
 
+	// Route the request through the VM's virtual gateway, not the guest's own loopback.
+	const loopback = await web.exec("curl -sS --max-time 8 --connect-to localhost:80:192.168.127.1:80 http://localhost/", { timeout: 12 });
+	expect(loopback.code, loopback.stderr).toBe(0);
+	expect(loopback.stdout).toContain("403 Forbidden: blocked by policy");
+
 	const offline = openTurn(new GondolinSandbox(1));
 	const blocked = await offline.exec(command, { timeout: 12 });
 	expect(blocked.code).not.toBe(0);
 	expect(blocked.stdout).toBe("");
 }, 30_000);
+
+vmTest("rejects an insecure credential destination before constructing the VM", async () => {
+	const turn = openTurn(new GondolinSandbox(1, { publicWeb: {
+		credential: {
+			env: "TEST_API_KEY", value: "test-fixture-key", url: "http://api.example.com/", header: "x-test-api-key",
+		},
+	} }));
+	await expect(turn.exec("true")).rejects.toThrow("requires an HTTPS endpoint");
+});
 
 vmTest("reuses the guest per turn, persists only projected data, and does not expose another chat", async () => {
 	const otherChat = ensureChatDir(workspace, "43");

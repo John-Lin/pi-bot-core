@@ -6,7 +6,7 @@ import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { ReadonlyProvider, RealFSProvider, resolveImageSelector, ShadowProvider, VM } from "@earendil-works/gondolin";
-import { createGondolinPublicWeb, type GondolinPublicWebOptions } from "./gondolin-public-web.js";
+import { applyGondolinCredential, type GondolinWebCredential } from "./gondolin-credential.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
 import type { ChatPaths } from "./workspace.js";
@@ -20,7 +20,10 @@ type FinishSlot = (failure?: Error) => void;
 
 export interface GondolinSandboxOptions {
 	/** When set, let guest tools reach public HTTP(S) destinations. Omit for offline turns. */
-	publicWeb?: GondolinPublicWebOptions;
+	publicWeb?: {
+		/** Expose a placeholder for a host credential scoped to one HTTPS POST and header. */
+		credential?: GondolinWebCredential;
+	};
 }
 
 /** Check native dependencies and cache the pinned image without booting a guest. */
@@ -107,7 +110,7 @@ export class GondolinTurn implements Executor {
 	constructor(
 		private readonly paths: ChatPaths,
 		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
-		private readonly publicWeb?: GondolinPublicWebOptions,
+		private readonly publicWeb?: GondolinSandboxOptions["publicWeb"],
 	) {
 		this.cwd = posix.join(GONDOLIN_WORKSPACE, basename(paths.chatDir));
 	}
@@ -206,10 +209,22 @@ export class GondolinTurn implements Executor {
 		this.finishSlot = await this.acquire(this.lifetime.signal);
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
-		const web = this.publicWeb && createGondolinPublicWeb(this.publicWeb);
+		const configured = this.publicWeb?.credential;
+		let credential: GondolinWebCredential | undefined;
+		if (configured) {
+			const endpoint = new URL(configured.url);
+			if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.hash || !configured.value) {
+				throw new Error("A Gondolin web credential requires an HTTPS endpoint and a nonempty value");
+			}
+			credential = { ...configured, url: endpoint.href };
+		}
+		const placeholder = credential && randomBytes(24).toString("hex");
+		const httpHooks = credential && placeholder ? {
+			onRequest: (request: Request) => applyGondolinCredential(request, credential, placeholder),
+		} : undefined;
 		this.vm = new VM({
-			sandbox: { vmm: "qemu", imagePath, netEnabled: web !== undefined, httpHooks: web?.httpHooks, allowWebSockets: false },
-			env: web?.env,
+			sandbox: { vmm: "qemu", imagePath, netEnabled: this.publicWeb !== undefined, httpHooks, allowWebSockets: false },
+			env: credential && placeholder ? { [credential.env]: placeholder } : undefined,
 			startTimeoutMs: 15_000,
 			vfs: {
 				mounts: {
