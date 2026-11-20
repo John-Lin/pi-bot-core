@@ -47,6 +47,9 @@ describe("buildBaseSystemPrompt", () => {
 	test("Gondolin describes only mounted files and available tools", () => {
 		const p = buildBaseSystemPrompt({ ...baseInput, workspacePath: "/workspace", sandbox: { type: "gondolin" } });
 		expect(p).toContain("Gondolin");
+		expect(p).toContain("public HTTP(S)");
+		expect(p).toContain("Private networks and loopback are blocked");
+		expect(p).not.toContain("no network access");
 		expect(p).toContain("/workspace/r1/scratch");
 		expect(p).toContain("/workspace/r1/MEMORY.md");
 		expect(p).toContain("chat_history");

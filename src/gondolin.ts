@@ -6,6 +6,7 @@ import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { ReadonlyProvider, RealFSProvider, resolveImageSelector, ShadowProvider, VM } from "@earendil-works/gondolin";
+import { applyGondolinCredential, type GondolinWebCredential } from "./gondolin-credential.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
 import type { ChatPaths } from "./workspace.js";
@@ -16,6 +17,11 @@ const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const IMAGE_PREPARE_TIMEOUT_MS = 120_000;
 const runFile = promisify(execFile);
 type FinishSlot = (failure?: Error) => void;
+
+export interface GondolinSandboxOptions {
+	/** Expose a placeholder for a host credential scoped to one HTTPS POST and header. */
+	credential?: GondolinWebCredential;
+}
 
 /** Check native dependencies and cache the pinned image without booting a guest. */
 export async function validateGondolinSandbox(): Promise<void> {
@@ -46,7 +52,10 @@ export class GondolinSandbox {
 	private failure?: Error;
 	private readonly waiters = new Set<() => void>();
 
-	constructor(private readonly maxConcurrent: number) {
+	constructor(
+		private readonly maxConcurrent: number,
+		private readonly options: GondolinSandboxOptions = {},
+	) {
 		if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1) {
 			throw new Error("Gondolin needs a positive VM concurrency limit");
 		}
@@ -58,7 +67,7 @@ export class GondolinSandbox {
 		}
 		const memory = lstatSync(paths.memoryFile);
 		if (!memory.isFile() || memory.nlink !== 1) throw new Error("Gondolin MEMORY.md must be an unlinked regular file");
-		return new GondolinTurn(paths, (signal) => this.acquire(signal));
+		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.options.credential);
 	}
 
 	private async acquire(signal: AbortSignal): Promise<FinishSlot> {
@@ -98,6 +107,7 @@ export class GondolinTurn implements Executor {
 	constructor(
 		private readonly paths: ChatPaths,
 		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
+		private readonly configuredCredential?: GondolinWebCredential,
 	) {
 		this.cwd = posix.join(GONDOLIN_WORKSPACE, basename(paths.chatDir));
 	}
@@ -196,8 +206,22 @@ export class GondolinTurn implements Executor {
 		this.finishSlot = await this.acquire(this.lifetime.signal);
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
+		const configured = this.configuredCredential;
+		let credential: GondolinWebCredential | undefined;
+		if (configured) {
+			const endpoint = new URL(configured.url);
+			if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.hash || !configured.value) {
+				throw new Error("A Gondolin web credential requires an HTTPS endpoint and a nonempty value");
+			}
+			credential = { ...configured, url: endpoint.href };
+		}
+		const placeholder = credential && randomBytes(24).toString("hex");
+		const httpHooks = credential && placeholder ? {
+			onRequest: (request: Request) => applyGondolinCredential(request, credential, placeholder),
+		} : undefined;
 		this.vm = new VM({
-			sandbox: { vmm: "qemu", imagePath, netEnabled: false },
+			sandbox: { vmm: "qemu", imagePath, netEnabled: true, httpHooks, allowWebSockets: false },
+			env: credential && placeholder ? { [credential.env]: placeholder } : undefined,
 			startTimeoutMs: 15_000,
 			vfs: {
 				mounts: {

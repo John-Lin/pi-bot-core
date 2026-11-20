@@ -30,6 +30,29 @@ function openTurn(sandbox: GondolinSandbox, paths = chat): GondolinTurn {
 }
 
 const vmTest = process.env.PI_BOT_TEST_GONDOLIN === "1" ? test : test.skip;
+const webTest = process.env.PI_BOT_TEST_GONDOLIN_WEB === "1" ? test : test.skip;
+
+webTest("allows public HTTPS by default while denying private HTTP destinations", async () => {
+	const command = "curl -fsS --max-time 8 https://example.com/";
+	const web = openTurn(new GondolinSandbox(1));
+	const result = await web.exec(command, { timeout: 12 });
+	expect(result.code, result.stderr).toBe(0);
+	expect(result.stdout).toContain("Example Domain");
+
+	// Route the request through the VM's virtual gateway, not the guest's own loopback.
+	const loopback = await web.exec("curl -sS --max-time 8 --connect-to localhost:80:192.168.127.1:80 http://localhost/", { timeout: 12 });
+	expect(loopback.code, loopback.stderr).toBe(0);
+	expect(loopback.stdout).toContain("403 Forbidden: blocked by policy");
+}, 30_000);
+
+vmTest("rejects an insecure credential destination before constructing the VM", async () => {
+	const turn = openTurn(new GondolinSandbox(1, {
+		credential: {
+			env: "TEST_API_KEY", value: "test-fixture-key", url: "http://api.example.com/", header: "x-test-api-key",
+		},
+	}));
+	await expect(turn.exec("true")).rejects.toThrow("requires an HTTPS endpoint");
+});
 
 vmTest("reuses the guest per turn, persists only projected data, and does not expose another chat", async () => {
 	const otherChat = ensureChatDir(workspace, "43");

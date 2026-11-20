@@ -135,7 +135,7 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 	const isGondolin = sandbox.type === "gondolin";
 
 	const envDescription = isGondolin
-		? `Workspace tools run inside a Gondolin VM with no network access.
+		? `Workspace tools run inside a Gondolin VM with public HTTP(S) access. Private networks and loopback are blocked.
 - Commands start in ${conversationPath}; use ${conversationPath}/scratch for working files.
 - The VM is discarded at the end of this run. Only writes to scratch and this ${noun}'s memory persist.`
 		: isDocker
