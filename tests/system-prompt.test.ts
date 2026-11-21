@@ -39,9 +39,9 @@ const baseInput = {
 };
 
 describe("buildBaseSystemPrompt", () => {
-	test("Gondolin describes only mounted files and available tools", () => {
+	test("describes the per-turn Linux VM sandbox and its mounted files", () => {
 		const p = buildBaseSystemPrompt(baseInput);
-		expect(p).toContain("Gondolin");
+		expect(p).toContain("Workspace tools run in a per-turn Linux VM sandbox");
 		expect(p).toContain("public HTTP(S)");
 		expect(p).toContain("Private networks and loopback are blocked");
 		expect(p).not.toContain("no network access");
