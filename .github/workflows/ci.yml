@@ -28,10 +28,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Prepare Gondolin
+      - name: Prepare Gondolin with krun
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils
+          sudo apt-get install -y --no-install-recommends qemu-utils
+          sudo chown "$(id -u)" /dev/kvm
           bun -e 'import { validateGondolinSandbox } from "pi-bot-core/gondolin"; await validateGondolinSandbox();'
 
       - name: Test

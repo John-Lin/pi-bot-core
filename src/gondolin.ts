@@ -14,6 +14,8 @@ import type { ChatPaths } from "./workspace.js";
 export const GONDOLIN_IMAGE = "alpine-base:0.3.2";
 export const GONDOLIN_WORKSPACE = "/workspace";
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+const VMM = "krun";
+const VM_START_TIMEOUT_MS = 15_000;
 const IMAGE_PREPARE_TIMEOUT_MS = 120_000;
 const runFile = promisify(execFile);
 type FinishSlot = (failure?: Error) => void;
@@ -39,17 +41,15 @@ export interface GondolinSandboxOptions {
 	writableWorkspaceContent?: boolean;
 }
 
-/** Check native dependencies and cache the pinned image without booting a guest. */
+/** Cache the pinned image and verify that a krun VM can boot on this host. */
 export async function validateGondolinSandbox(): Promise<void> {
-	if (!["darwin", "linux"].includes(process.platform) || !["arm64", "x64"].includes(process.arch)) {
-		throw new SandboxConfigError("Gondolin requires macOS or Linux on arm64 or x64");
+	if (!(process.platform === "darwin" && process.arch === "arm64") && !(process.platform === "linux" && process.arch === "x64")) {
+		throw new SandboxConfigError("This Gondolin configuration requires Apple Silicon macOS or x64 Linux for the packaged krun runner");
 	}
-	for (const command of [process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64", "qemu-img"]) {
-		try {
-			await runFile(command, ["--version"], { timeout: 5_000 });
-		} catch {
-			throw new SandboxConfigError(`${command} is not usable; install QEMU and check the bot's PATH`);
-		}
+	try {
+		await runFile("qemu-img", ["--version"], { timeout: 5_000 });
+	} catch {
+		throw new SandboxConfigError("qemu-img is not usable; install it for the VM's copy-on-write disk and check the bot's PATH");
 	}
 	try {
 		// Run the pull in its own process because the SDK's image fetch has no AbortSignal.
@@ -59,6 +59,19 @@ export async function validateGondolinSandbox(): Promise<void> {
 		});
 	} catch (error) {
 		throw new SandboxConfigError(`Cannot prepare Gondolin image ${GONDOLIN_IMAGE} (startup budget: ${IMAGE_PREPARE_TIMEOUT_MS / 1000} seconds): ${String(error)}`);
+	}
+	try {
+		const vm = new VM({
+			sandbox: { vmm: VMM, imagePath: resolveImageSelector(GONDOLIN_IMAGE).assetDir, netEnabled: false },
+			startTimeoutMs: VM_START_TIMEOUT_MS,
+		});
+		try {
+			await vm.start();
+		} finally {
+			await vm.close();
+		}
+	} catch (error) {
+		throw new SandboxConfigError(`Cannot start Gondolin with krun; check the installed runner and hardware virtualization (including /dev/kvm access on Linux): ${String(error)}`);
 	}
 }
 
@@ -242,9 +255,9 @@ export class GondolinTurn implements Executor {
 			})
 			: new ReadonlyProvider(new RealFSProvider(path));
 		this.vm = new VM({
-			sandbox: { vmm: "qemu", imagePath, netEnabled: true, httpHooks, allowWebSockets: false },
+			sandbox: { vmm: VMM, imagePath, netEnabled: true, httpHooks, allowWebSockets: false },
 			env: credential && placeholder ? { [credential.env]: placeholder } : undefined,
-			startTimeoutMs: 15_000,
+			startTimeoutMs: VM_START_TIMEOUT_MS,
 			vfs: {
 				mounts: {
 					[cwd]: new ShadowProvider(new RealFSProvider(paths.chatDir), {

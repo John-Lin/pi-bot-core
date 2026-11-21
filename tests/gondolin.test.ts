@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VM } from "@earendil-works/gondolin";
@@ -31,6 +31,27 @@ function openTurn(sandbox: GondolinSandbox, paths = chat): GondolinTurn {
 
 const vmTest = process.env.PI_BOT_TEST_GONDOLIN === "1" ? test : test.skip;
 const webTest = process.env.PI_BOT_TEST_GONDOLIN_WEB === "1" ? test : test.skip;
+
+vmTest("starts and runs a turn with only qemu-img on PATH", () => {
+	const qemuImg = Bun.which("qemu-img");
+	if (!qemuImg) throw new Error("Gondolin VM tests require qemu-img");
+	const bin = join(workspace, "bin");
+	mkdirSync(bin);
+	symlinkSync(qemuImg, join(bin, "qemu-img"));
+	const result = Bun.spawnSync([process.execPath, "--no-env-file", "-e", `
+		import { GondolinSandbox, validateGondolinSandbox } from ${JSON.stringify(import.meta.resolve("../src/gondolin.js"))};
+		await validateGondolinSandbox();
+		const turn = new GondolinSandbox(1).turn(${JSON.stringify(chat)});
+		try {
+			process.stdout.write(JSON.stringify(await turn.exec("uname -s", { timeout: 20 })));
+		} finally {
+			await turn.close();
+		}
+	`], { env: { ...process.env, PATH: bin }, timeout: 30_000 });
+	expect(result.exitCode, result.stderr.toString()).toBe(0);
+	expect(result.stderr.toString()).toBe("");
+	expect(JSON.parse(result.stdout.toString())).toEqual({ stdout: "Linux\n", stderr: "", code: 0 });
+}, 35_000);
 
 webTest("allows public HTTPS by default while denying private HTTP destinations", async () => {
 	const command = "curl -fsS --max-time 8 https://example.com/";
