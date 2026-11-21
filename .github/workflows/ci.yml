@@ -31,7 +31,7 @@ jobs:
       - name: Prepare Gondolin with krun
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-utils
+          sudo apt-get install -y --no-install-recommends qemu-utils libcap-ng0 libgcc-s1
           sudo chown "$(id -u)" /dev/kvm
           bun -e 'import { validateGondolinSandbox } from "pi-bot-core/gondolin"; await validateGondolinSandbox();'
 

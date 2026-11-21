@@ -417,9 +417,12 @@ Tool parameter schemas use `@earendil-works/pi-schema` instead of a direct TypeB
 
 When supplying `createScheduleTool` parameters, use pi-schema builders (`obj`, `str`, `num`, `opt`, etc.); routing callback arguments are inferred with pi-schema's `Static`. Unlike the built-in schemas here, `obj(properties)` is closed by default; pass `{ open: true }` if your schema should accept extra fields.
 
-The supported hosts are Apple Silicon macOS (Hypervisor.framework) and x64 Linux (read/write access to `/dev/kvm` for the bot user). Install with optional dependencies enabled: Gondolin brings the platform krun runner and bundles libkrun. The pinned image contains the krun kernel assets. Gondolin labels the [krun backend](https://github.com/earendil-works/gondolin/blob/v0.14.0/docs/backends.md) experimental.
+Install with optional dependencies enabled: Gondolin ships prebuilt platform runners that bundle libkrun. The pinned image contains the krun kernel assets. Gondolin labels the [krun backend](https://github.com/earendil-works/gondolin/blob/v0.14.0/docs/backends.md) experimental.
 
-Put `qemu-img` on the bot's `PATH` for copy-on-write disks (the Homebrew `qemu` package or Debian/Ubuntu `qemu-utils` package provides it). The QEMU system emulator is not used. Cold image downloads also require `tar` on `PATH`.
+- **Apple Silicon macOS:** The packaged runner targets macOS 15 or later and uses Hypervisor.framework.
+- **x64 Linux:** The packaged runner needs glibc 2.36 or later, `libcap-ng.so.0` and `libgcc_s.so.1` (Debian/Ubuntu: `libcap-ng0` and `libgcc-s1`), and read/write access to `/dev/kvm` for the bot user.
+
+Put `qemu-img` on the bot's `PATH` for copy-on-write disks (the Homebrew `qemu` package or Debian/Ubuntu `qemu-utils` package provides it). The QEMU system emulator is not used. Cold image downloads require `tar` with gzip support (`gzip` must also be on `PATH` for GNU tar).
 
 ## Development
 
