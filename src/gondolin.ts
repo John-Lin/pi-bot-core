@@ -6,7 +6,7 @@ import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM } from "@earendil-works/gondolin";
-import { applyGondolinCredential, type GondolinWebCredential } from "./gondolin-credential.js";
+import { applyGondolinCredential, normalizeGondolinCredential, type ActiveGondolinCredential, type GondolinWebCredential } from "./gondolin-credential.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
 import type { ChatPaths } from "./workspace.js";
@@ -33,7 +33,7 @@ class WorkspaceContentProvider extends RealFSProvider {
 }
 
 export interface GondolinSandboxOptions {
-	/** Expose a placeholder for a host credential scoped to one HTTPS POST and header. */
+	/** Expose a placeholder for a host credential scoped to exact HTTPS POST URLs and one header. */
 	credential?: GondolinWebCredential;
 	/** Allow guest writes to chat attachments, chat skills, and shared skills. */
 	writableWorkspaceContent?: boolean;
@@ -67,6 +67,7 @@ export class GondolinSandbox {
 	private active = 0;
 	private failure?: Error;
 	private readonly waiters = new Set<() => void>();
+	private readonly credential?: ActiveGondolinCredential;
 
 	constructor(
 		private readonly maxConcurrent: number,
@@ -75,6 +76,7 @@ export class GondolinSandbox {
 		if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1) {
 			throw new Error("Gondolin needs a positive VM concurrency limit");
 		}
+		this.credential = options.credential && normalizeGondolinCredential(options.credential);
 	}
 
 	turn(paths: ChatPaths): GondolinTurn {
@@ -83,7 +85,7 @@ export class GondolinSandbox {
 		}
 		const memory = lstatSync(paths.memoryFile);
 		if (!memory.isFile() || memory.nlink !== 1) throw new Error("Gondolin MEMORY.md must be an unlinked regular file");
-		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.options.credential, this.options.writableWorkspaceContent);
+		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.credential, this.options.writableWorkspaceContent);
 	}
 
 	private async acquire(signal: AbortSignal): Promise<FinishSlot> {
@@ -123,7 +125,7 @@ export class GondolinTurn implements Executor {
 	constructor(
 		private readonly paths: ChatPaths,
 		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
-		private readonly configuredCredential?: GondolinWebCredential,
+		private readonly credential?: ActiveGondolinCredential,
 		private readonly writableWorkspaceContent = false,
 	) {
 		this.cwd = posix.join(GONDOLIN_WORKSPACE, basename(paths.chatDir));
@@ -223,15 +225,7 @@ export class GondolinTurn implements Executor {
 		this.finishSlot = await this.acquire(this.lifetime.signal);
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
-		const configured = this.configuredCredential;
-		let credential: GondolinWebCredential | undefined;
-		if (configured) {
-			const endpoint = new URL(configured.url);
-			if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.hash || !configured.value.trim()) {
-				throw new Error("A Gondolin web credential requires an HTTPS endpoint and a nonempty value");
-			}
-			credential = { ...configured, url: endpoint.href };
-		}
+		const credential = this.credential;
 		const placeholder = credential && randomBytes(24).toString("hex");
 		const httpHooks = credential && placeholder ? {
 			onRequest: (request: Request) => applyGondolinCredential(request, credential, placeholder),
