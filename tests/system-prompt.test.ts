@@ -58,6 +58,19 @@ describe("buildBaseSystemPrompt", () => {
 		}
 	});
 
+	test("Gondolin describes writable skills and original attachments only when enabled", () => {
+		const input = { ...baseInput, workspacePath: "/workspace" };
+		const writable = buildBaseSystemPrompt({ ...input, sandbox: { type: "gondolin", writableWorkspaceContent: true } });
+		expect(writable).toContain("Files shared by the user (writable)");
+		expect(writable).toContain("/workspace/skills/<name>/");
+		expect(writable).toContain("/workspace/r1/skills/<name>/");
+		expect(writable).toContain("subsequent turns");
+		expect(writable).not.toContain("Installed skills are read-only");
+		const readOnly = buildBaseSystemPrompt({ ...input, sandbox: { type: "gondolin" } });
+		expect(readOnly).toContain("Installed skills are read-only");
+		expect(readOnly).toContain("Files shared by the user (read-only)");
+	});
+
 	test("Gondolin does not promise cancellation from workspace tools", () => {
 		const p = buildBaseSystemPrompt({ ...baseInput, sandbox: { type: "gondolin" } });
 		expect(p).toContain("You cannot list or cancel events from the VM");

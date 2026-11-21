@@ -6,7 +6,7 @@ import { VM } from "@earendil-works/gondolin";
 import { GONDOLIN_IMAGE, GondolinSandbox, type GondolinTurn } from "../src/gondolin.js";
 import { createBashTool } from "../src/tools/bash.js";
 import { createReadTool } from "../src/tools/read.js";
-import { ensureChatDir, type ChatPaths } from "../src/workspace.js";
+import { ensureChatDir, loadChatSkills, type ChatPaths } from "../src/workspace.js";
 
 let workspace: string;
 let chat: ChatPaths;
@@ -75,6 +75,52 @@ vmTest("reuses the guest per turn, persists only projected data, and does not ex
 	await turn.close();
 	const next = openTurn(sandbox);
 	expect(await next.exec("test ! -e /tmp/turn && cat scratch/work.txt MEMORY.md")).toEqual({ stdout: "scratchnote", stderr: "", code: 0 });
+}, 30_000);
+
+vmTest("persists edits to the original attachment and reloads local and shared skills", async () => {
+	const otherChat = ensureChatDir(workspace, "43");
+	const attachment = join(chat.attachmentsDir, "input.txt");
+	writeFileSync(attachment, "original");
+	writeFileSync(join(otherChat.attachmentsDir, "input.txt"), "private");
+	const sandbox = new GondolinSandbox(1, { writableWorkspaceContent: true });
+	const turn = openTurn(sandbox);
+	expect(loadChatSkills(chat)).toEqual([]);
+	const edits = await turn.exec([
+		"printf edited > attachments/input.txt",
+		"printf '%s\\n' --- 'name: example' 'description: For every chat' --- > /workspace/skills/example.md",
+		"printf '%s\\n' --- 'name: example' 'description: For this chat' --- > skills/example.md",
+		"test ! -e /workspace/43 && test ! -e /data/workspace/43",
+	].join(" && "));
+	expect(edits).toEqual({ stdout: "", stderr: "", code: 0 });
+	expect(await turn.readAttachment("/workspace/42/attachments/input.txt")).toEqual(Buffer.from("edited"));
+	await turn.close();
+
+	expect(readFileSync(attachment, "utf8")).toBe("edited");
+	expect(loadChatSkills(chat).map(({ description }) => description)).toEqual(["For this chat"]);
+	expect(loadChatSkills(otherChat).map(({ description }) => description)).toEqual(["For every chat"]);
+	const otherTurn = openTurn(sandbox, otherChat);
+	expect(await otherTurn.exec("printf '%s\\n' --- 'name: example' 'description: Updated by another chat' --- > /workspace/skills/.example.tmp && mv /workspace/skills/.example.tmp /workspace/skills/example.md && cat attachments/input.txt")).toEqual({
+		stdout: "private", stderr: "", code: 0,
+	});
+	await otherTurn.close();
+	const next = openTurn(sandbox);
+	expect(await next.exec("cat attachments/input.txt && test -f skills/example.md")).toEqual({ stdout: "edited", stderr: "", code: 0 });
+	expect(loadChatSkills(otherChat).map(({ description }) => description)).toEqual(["Updated by another chat"]);
+}, 30_000);
+
+vmTest("does not let writable mounts plant host-visible filesystem links", async () => {
+	const turn = openTurn(new GondolinSandbox(1, { writableWorkspaceContent: true }));
+	for (const mount of ["attachments", "skills", "/workspace/skills"]) {
+		const setup = await turn.exec(`touch ${mount}/target`);
+		expect(setup).toEqual({ stdout: "", stderr: "", code: 0 });
+		const symbolic = await turn.exec(`ln -s target ${mount}/symbolic`);
+		expect(symbolic.code, JSON.stringify(symbolic)).not.toBe(0);
+		expect(symbolic.stderr).toContain("symbolic");
+		const hard = await turn.exec(`ln ${mount}/target ${mount}/hard`);
+		expect(hard.code, JSON.stringify(hard)).not.toBe(0);
+		expect(hard.stderr).toContain("hard");
+		expect(await turn.exec(`test ! -L ${mount}/symbolic && test ! -e ${mount}/hard`)).toEqual({ stdout: "", stderr: "", code: 0 });
+	}
 }, 30_000);
 
 vmTest("releases its slot and terminates the VM on command timeout", async () => {

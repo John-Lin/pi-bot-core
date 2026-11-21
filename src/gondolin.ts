@@ -18,9 +18,23 @@ const IMAGE_PREPARE_TIMEOUT_MS = 120_000;
 const runFile = promisify(execFile);
 type FinishSlot = (failure?: Error) => void;
 
+/** Prevent guests from planting links that host skill discovery or downloads could follow. */
+class WorkspaceContentProvider extends RealFSProvider {
+	private readonly denyLink = (): never => {
+		throw Object.assign(new Error("Links are not allowed in writable content mounts"), { code: "EACCES" });
+	};
+
+	override symlinkSync = this.denyLink;
+	override linkSync = this.denyLink;
+	override symlink = async () => this.denyLink();
+	override link = this.symlink;
+}
+
 export interface GondolinSandboxOptions {
 	/** Expose a placeholder for a host credential scoped to one HTTPS POST and header. */
 	credential?: GondolinWebCredential;
+	/** Allow guest writes to chat attachments, chat skills, and shared skills. */
+	writableWorkspaceContent?: boolean;
 }
 
 /** Check native dependencies and cache the pinned image without booting a guest. */
@@ -67,7 +81,7 @@ export class GondolinSandbox {
 		}
 		const memory = lstatSync(paths.memoryFile);
 		if (!memory.isFile() || memory.nlink !== 1) throw new Error("Gondolin MEMORY.md must be an unlinked regular file");
-		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.options.credential);
+		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.options.credential, this.options.writableWorkspaceContent);
 	}
 
 	private async acquire(signal: AbortSignal): Promise<FinishSlot> {
@@ -108,6 +122,7 @@ export class GondolinTurn implements Executor {
 		private readonly paths: ChatPaths,
 		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
 		private readonly configuredCredential?: GondolinWebCredential,
+		private readonly writableWorkspaceContent = false,
 	) {
 		this.cwd = posix.join(GONDOLIN_WORKSPACE, basename(paths.chatDir));
 	}
@@ -219,6 +234,9 @@ export class GondolinTurn implements Executor {
 		const httpHooks = credential && placeholder ? {
 			onRequest: (request: Request) => applyGondolinCredential(request, credential, placeholder),
 		} : undefined;
+		const contentMount = (path: string) => this.writableWorkspaceContent
+			? new WorkspaceContentProvider(path)
+			: new ReadonlyProvider(new RealFSProvider(path));
 		this.vm = new VM({
 			sandbox: { vmm: "qemu", imagePath, netEnabled: true, httpHooks, allowWebSockets: false },
 			env: credential && placeholder ? { [credential.env]: placeholder } : undefined,
@@ -232,9 +250,9 @@ export class GondolinTurn implements Executor {
 							: path !== "/MEMORY.md" || !["open", "stat", "lstat", "realpath", "readdir", "access"].includes(op),
 					}),
 					[`${cwd}/scratch`]: new RealFSProvider(paths.scratchDir),
-					[`${cwd}/attachments`]: new ReadonlyProvider(new RealFSProvider(paths.attachmentsDir)),
-					[`${cwd}/skills`]: new ReadonlyProvider(new RealFSProvider(paths.skillsDir)),
-					[`${GONDOLIN_WORKSPACE}/skills`]: new ReadonlyProvider(new RealFSProvider(sharedSkills)),
+					[`${cwd}/attachments`]: contentMount(paths.attachmentsDir),
+					[`${cwd}/skills`]: contentMount(paths.skillsDir),
+					[`${GONDOLIN_WORKSPACE}/skills`]: contentMount(sharedSkills),
 				},
 			},
 		});
