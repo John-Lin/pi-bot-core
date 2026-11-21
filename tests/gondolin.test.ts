@@ -341,10 +341,12 @@ vmTest("exports guest bytes from the current chat without opening host paths", a
 
 vmTest("reports the workspace output limit when a command exceeds it", async () => {
 	const turn = openTurn(new GondolinSandbox(1));
+	// Boot separately so host load cannot turn the output-limit check into a command timeout.
+	await turn.exec("true");
 	await expect(createBashTool(turn).execute("output-limit", {
-		label: "Generate oversized output", command: "head -c 10485761 /dev/zero", timeout: 10,
+		label: "Generate oversized output", command: "head -c 10485761 /dev/zero",
 	})).rejects.toThrow("Workspace tool output exceeded 10 MiB.");
-}, 30_000);
+}, 45_000);
 
 vmTest("keeps truncated bash output readable inside the live turn", async () => {
 	const turn = openTurn(new GondolinSandbox(1));
