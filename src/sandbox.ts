@@ -5,8 +5,8 @@
  * (log + exit in a CLI, error reply in a bot, etc.).
  */
 export class SandboxConfigError extends Error {
-	constructor(message: string) {
-		super(message);
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
 		this.name = "SandboxConfigError";
 	}
 }

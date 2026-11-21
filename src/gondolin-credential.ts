@@ -47,7 +47,7 @@ export function applyGondolinCredential(request: Request, credential: ActiveGond
 	if (!key || carriesKey || request.method !== "POST" || !credential.urls.includes(request.url) || markerCount !== 1 ||
 		ROUTING_HEADERS.has(header) || request.headers.get(header) !== placeholder ||
 		(host !== null && host.toLowerCase() !== new URL(request.url).host)) {
-		return new Response("Gondolin web credential is not allowed for this request", { status: 403 });
+		return new Response("The workspace credential is not allowed for this request.", { status: 403 });
 	}
 	// Let the HTTP client derive the upstream authority from the approved URL.
 	request.headers.delete("host");

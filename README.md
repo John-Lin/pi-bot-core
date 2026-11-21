@@ -4,7 +4,7 @@ Shared runtime and building blocks for pi-mono based bots (e.g. `pi-discord-bot`
 
 Inspired by [pi-mono](https://github.com/badlogic/pi-mono); some modules were originally ported from `pi-mono/packages/mom` and remain MIT-licensed under the original copyright. See `LICENSE`.
 
-Workspace tools run in a turn-scoped Gondolin VM through the shared `Executor` interface. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
+Workspace tools run in a per-turn Linux microVM using the Gondolin SDK through the shared `Executor` interface. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
 
 ## Contents
 
@@ -49,7 +49,7 @@ Immediate events tolerate short outages: files last modified within five minutes
 
 ## Usage
 
-### Gondolin sandbox
+### Workspace microVM sandbox
 
 ```ts
 import { createBotTools } from "pi-bot-core";
@@ -216,7 +216,7 @@ HTTP servers without an `Authorization` header (any capitalization) use the SDK'
 
 MCP connections never start a browser sign-in. Missing or revoked credentials are reported as `<server>: needs sign-in` through `notify`; complete the login on the host. Per the SDK, a session waiting for sign-in reconnects on a later turn once the stored credentials change; restarting the bot also picks them up. Sharing the store does not load personal servers, but it does share authority: every chat that can reach a configured server acts with the logged-in account, not per platform user. Keep tokens out of the bot's `mcp.json` so refreshes do not require editing it.
 
-MCP servers run in the bot process environment, outside the Gondolin VM: stdio servers are host processes with the bot's privileges, and HTTP URLs are resolved from the bot process. Server log notifications are appended to `mcpLogPath`.
+MCP servers run in the bot process environment, outside the workspace microVM: stdio servers are host processes with the bot's privileges, and HTTP URLs are resolved from the bot process. Server log notifications are appended to `mcpLogPath`.
 
 ### Shared progress (`pi-bot-core/progress`)
 

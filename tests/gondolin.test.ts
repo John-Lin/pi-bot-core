@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, s
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VM } from "@earendil-works/gondolin";
-import { GONDOLIN_IMAGE, GondolinSandbox, validateGondolinSandbox, type GondolinTurn } from "../src/gondolin.js";
+import { GondolinSandbox, validateGondolinSandbox, type GondolinTurn } from "../src/gondolin.js";
 import { SandboxConfigError } from "../src/sandbox.js";
 import { createBashTool } from "../src/tools/bash.js";
 import { createReadTool } from "../src/tools/read.js";
@@ -232,6 +232,13 @@ vmTest("preserves mounted directories and their modes while allowing changes ins
 	}
 }, 30_000);
 
+test("a closed turn reports that the workspace sandbox has closed", async () => {
+	const turn = openTurn(new GondolinSandbox(1));
+	await turn.close();
+	await expect(createBashTool(turn).execute("closed", { label: "Inspect workspace", command: "pwd" }))
+		.rejects.toThrow("The workspace sandbox turn is closed.");
+});
+
 vmTest("releases its slot and terminates the VM on command timeout", async () => {
 	const sandbox = new GondolinSandbox(1);
 	const turn = openTurn(sandbox);
@@ -267,8 +274,9 @@ vmTest("rejects queued and new turns when VM cleanup fails", async () => {
 		const waiting = openTurn(sandbox).exec("true").catch((error: Error) => error.message);
 		await expect(owner.close()).rejects.toThrow("injected SDK cleanup error");
 		const outcome = await Promise.race([waiting, Bun.sleep(600).then(() => "turn is still waiting")]);
-		expect(outcome).toContain("Gondolin VM cleanup failed");
-		await expect(openTurn(sandbox).exec("true", { timeout: 0.5 })).rejects.toThrow("Gondolin VM cleanup failed");
+		const message = "Workspace microVM cleanup failed; the bot must be restarted before starting another turn.";
+		expect(outcome).toBe(message);
+		await expect(openTurn(sandbox).exec("true", { timeout: 0.5 })).rejects.toThrow(message);
 	} finally {
 		fault.mockRestore();
 	}
@@ -290,10 +298,14 @@ test("a turn with an empty image cache fails without contacting the registry", a
 	process.env.GONDOLIN_IMAGE_STORE = join(workspace, "empty-image-store");
 	process.env.GONDOLIN_IMAGE_REGISTRY_URL = new URL("registry.json", registry.url).href;
 	const turn = openTurn(new GondolinSandbox(1));
-	const result = turn.exec("true", { timeout: 0.1 }).catch((error: Error) => error.message);
+	const result = createBashTool(turn).execute("missing-image", { label: "Check workspace", command: "true", timeout: 0.1 })
+		.catch((error: Error) => error);
 	try {
 		const outcome = await Promise.race([result, Bun.sleep(600).then(() => "turn is still waiting")]);
-		expect(outcome).toContain(`Gondolin image ${GONDOLIN_IMAGE} is not available locally`);
+		expect(outcome).toBeInstanceOf(SandboxConfigError);
+		if (!(outcome instanceof SandboxConfigError)) throw new Error("Expected a sandbox configuration error");
+		expect(outcome.message).toBe("The workspace microVM image is unavailable. Ask the bot operator to run startup validation.");
+		expect(outcome.cause).toBeInstanceOf(Error);
 		expect(requests).toBe(0);
 	} finally {
 		response.resolve(new Response("test teardown", { status: 503 }));
@@ -325,6 +337,13 @@ vmTest("exports guest bytes from the current chat without opening host paths", a
 	expect((await turn.exec("printf report > scratch/file.txt")).code).toBe(0);
 	await expect(turn.readAttachment("/workspace/42/scratch/file.txt")).resolves.toEqual(Buffer.from("report"));
 	await expect(turn.readAttachment("/workspace/42/scratch/file.txt/..")).rejects.toThrow("this chat's scratch or attachments");
+}, 30_000);
+
+vmTest("reports the workspace output limit when a command exceeds it", async () => {
+	const turn = openTurn(new GondolinSandbox(1));
+	await expect(createBashTool(turn).execute("output-limit", {
+		label: "Generate oversized output", command: "head -c 10485761 /dev/zero", timeout: 10,
+	})).rejects.toThrow("Workspace tool output exceeded 10 MiB.");
 }, 30_000);
 
 vmTest("keeps truncated bash output readable inside the live turn", async () => {
