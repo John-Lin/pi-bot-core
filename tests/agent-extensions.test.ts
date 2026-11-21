@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join, relative } from "path";
-import { createBotTools, HostExecutor } from "../src/index.js";
+import { createBotTools } from "../src/index.js";
+import { HostExecutor } from "./helpers/host-executor.js";
 import { type BotMcpConfig, loadBotMcpConfig } from "pi-bot-core/agent-extensions";
 import { startMcpHttpServer } from "./fixtures/mcp-http-server.js";
 import {

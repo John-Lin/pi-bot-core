@@ -23,7 +23,6 @@ export function ensureChatDir(workspace: string, chatId: number | string): ChatP
 	mkdirSync(workspace, { recursive: true });
 	mkdirSync(join(workspace, "skills"), { recursive: true });
 	touchFile(join(workspace, "MEMORY.md"));
-	touchFile(join(workspace, "SYSTEM.md"));
 
 	const chatDir = join(workspace, String(chatId));
 	for (const sub of PER_CHAT_SUBDIRS) {
@@ -72,31 +71,15 @@ function tryRead(path: string): string {
 }
 
 /**
- * Read the workspace-level `SYSTEM.md` (env mods log the agent maintains itself).
- *
- * Mirrors `readMemory`'s XML fence so user/LLM-authored Markdown headings inside SYSTEM.md
- * cannot collide with surrounding system-prompt heading hierarchy. Only the global file is
- * surfaced — environment state is shared across chats whether the bot runs on the host or
- * inside a per-bot docker container, so a per-chat layer would not match reality.
- */
-export function readSystemConfig(paths: ChatPaths): string {
-	const body = tryRead(join(paths.workspace, "SYSTEM.md"));
-	if (!body) return "(no system state recorded yet)";
-	return `<system_config>\n${body}\n</system_config>`;
-}
-
-/**
  * Load skills from both the global workspace and this chat's skill dir. Per-chat overrides global on name collision.
  *
- * When `containerWorkspace` differs from `paths.workspace`, skill paths are rewritten from the host
- * view to the container view so that the LLM (which invokes skills via bash inside the container)
- * sees paths that actually exist in its filesystem. This mirrors pi-mom's `loadMomSkills`.
+ * When given a guest workspace root, rewrite skill paths so workspace tools can open them in the VM.
  */
-export function loadChatSkills(paths: ChatPaths, containerWorkspace?: string): Skill[] {
+export function loadChatSkills(paths: ChatPaths, guestWorkspace?: string): Skill[] {
 	const map = new Map<string, Skill>();
 	const translate = (hostPath: string): string =>
-		containerWorkspace && containerWorkspace !== paths.workspace && hostPath.startsWith(paths.workspace)
-			? containerWorkspace + hostPath.slice(paths.workspace.length)
+		guestWorkspace && guestWorkspace !== paths.workspace && hostPath.startsWith(paths.workspace)
+			? guestWorkspace + hostPath.slice(paths.workspace.length)
 			: hostPath;
 
 	const apply = (s: Skill): Skill => ({

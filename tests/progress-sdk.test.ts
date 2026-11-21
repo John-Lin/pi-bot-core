@@ -3,7 +3,8 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { ProgressTracker, type ProgressEvent } from "pi-bot-core/progress";
-import { createBotTools, HostExecutor } from "../src/index.js";
+import { createBotTools } from "../src/index.js";
+import { HostExecutor } from "./helpers/host-executor.js";
 import { createBotSession, isolateEnvironment, outputText, runCodemode } from "./helpers/bot-session.js";
 
 type ToolEvent = Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_end" }>;

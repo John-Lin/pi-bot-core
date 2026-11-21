@@ -1,5 +1,4 @@
 import { formatSkillsForPrompt, type Skill } from "@earendil-works/pi-coding-agent";
-import type { SandboxConfig } from "./sandbox.js";
 
 /**
  * Platform-specific configuration consumed by `buildBaseSystemPrompt`.
@@ -31,16 +30,6 @@ export interface PlatformConfig {
 	 * alignment.
 	 */
 	workspaceTreeLeafLine: string;
-	/** `ts` field type label inside the log row schema doc, e.g. "<snowflake>" or "<message_id>". */
-	logRowSchemaTsType: string;
-	/**
-	 * Trailing fragment after "user messages and your final replies" in the log queries
-	 * intro paragraph. Discord includes " plus other bots / webhooks", Telegram includes
-	 * " plus other bots". The leading space is part of the value.
-	 */
-	logSenderSourcesSuffix: string;
-	/** The full sentence describing how edits and deletions appear in `log.jsonl`. */
-	logEditsNote: string;
 	/** Schedule-event tool documentation knobs. */
 	events: {
 		/** Field name inside event JSON that identifies the conversation, e.g. "channelId" or "chatId". */
@@ -82,11 +71,7 @@ export interface PlatformConfig {
 }
 
 export interface BaseSystemPromptInput {
-	/**
-	 * Workspace root as the agent sees it.
-	 * - host mode: the real host path (e.g. `/Users/.../data`)
-	 * - docker mode: the container path (e.g. `/workspace`)
-	 */
+	/** Workspace root as the guest sees it (e.g. `/workspace`). */
 	workspacePath: string;
 	/** The platform-native conversation id (channel id, chat id, etc.) — used as the per-conversation directory name. */
 	conversationId: string;
@@ -95,9 +80,8 @@ export interface BaseSystemPromptInput {
 	skills: Skill[];
 	/** Memory blob to splice into the `### Current Memory` subsection. */
 	memory: string;
-	/** SYSTEM.md blob (env mods log) to splice into the `### Current System State` subsection. */
-	systemConfig: string;
-	sandbox: SandboxConfig | { type: "gondolin"; writableWorkspaceContent?: boolean };
+	/** Whether guest writes to attachments and skills persist. */
+	writableWorkspaceContent?: boolean;
 	platform: PlatformConfig;
 	/**
 	 * Pre-built `## Live State` body lines. Joined with `\n` and placed at the end of the
@@ -121,34 +105,15 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 		botUsername,
 		skills,
 		memory,
-		systemConfig,
-		sandbox,
+		writableWorkspaceContent: writableContent,
 		platform,
 		liveStateLines,
 	} = input;
 
 	const noun = platform.conversationNoun;
 	const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
-	const nouns = `${noun}s`;
 	const conversationPath = `${workspacePath}/${conversationId}`;
-	const isDocker = sandbox.type === "docker";
-	const isGondolin = sandbox.type === "gondolin";
-	const writableContent = isGondolin && sandbox.writableWorkspaceContent;
 	const contentAccess = writableContent ? "writable" : "read-only";
-
-	const envDescription = isGondolin
-		? `Workspace tools run inside a Gondolin VM with public HTTP(S) access. Private networks and loopback are blocked.
-- Commands start in ${conversationPath}; use ${conversationPath}/scratch for working files.
-- The VM is discarded at the end of this run. Only writes to scratch and this ${noun}'s memory${writableContent ? ", attachments, and skills, plus shared skills" : ""} persist.`
-		: isDocker
-		? `You are running inside a Docker container (Alpine Linux).
-- Bash working directory: / (use \`cd\` or absolute paths)
-- Install tools with: apk add <package>
-- Your changes persist across sessions (container is not recreated between runs).`
-		: `You are running directly on the host machine.
-- Your working directory for this ${noun}: ${conversationPath}
-- Bash commands start from the bot process's current directory, not this ${noun}'s directory. Use \`cd ${conversationPath}\` or absolute paths for ${noun}-scoped work.
-- Be careful with system modifications outside this directory.`;
 
 	const ev = platform.events;
 	const liveState = liveStateLines.join("\n");
@@ -164,51 +129,28 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 ${platform.formattingSection}
 
 ## Environment
-${envDescription}
+Workspace tools run inside a Gondolin VM with public HTTP(S) access. Private networks and loopback are blocked.
+- Commands start in ${conversationPath}; use ${conversationPath}/scratch for working files.
+- The VM is discarded at the end of this run. Only writes to scratch and this ${noun}'s memory${writableContent ? ", attachments, and skills, plus shared skills" : ""} persist.
 
 ## Workspace Layout
-${isGondolin ? `${workspacePath}/
+${workspacePath}/
 ├── skills/                    # Shared skills (${contentAccess})
 ${platform.workspaceTreeLeafLine}
     ├── MEMORY.md              # ${Noun}-specific memory
     ├── attachments/           # Files shared by the user (${contentAccess})
     ├── scratch/               # Persistent working files
-    └── skills/                # ${Noun}-specific skills (${contentAccess})` : `${workspacePath}/
-├── AGENTS.md                  # Shared agent instructions
-├── SOUL.md                    # Shared persona
-├── IDENTITY.md                # Shared identity
-├── USER.md                    # Shared user preferences
-├── MEMORY.md                  # Global memory (shared across all ${nouns})
-├── SYSTEM.md                  # Env mods log (auto-inlined — see "System Configuration Log")
-├── skills/                    # Global reusable CLI tools you create
-├── events/                    # Scheduled / triggered events (see below)
-${platform.workspaceTreeLeafLine}
-    ├── MEMORY.md              # ${Noun}-specific memory
-    ├── log.jsonl              # Message history (no tool results) — see "Log Queries"
-    ├── attachments/           # Files shared by the user
-    ├── scratch/               # Your working directory
-    └── skills/                # ${Noun}-specific reusable tools`}
+    └── skills/                # ${Noun}-specific skills (${contentAccess})
 
 **DO NOT MODIFY host-managed access-control configuration.** Access rules and their storage are bot-specific; do not assume an access-control file exists in this workspace.
 
 ## Log Queries (older history)
-${isGondolin ? "Recent context is already in your conversation. Use `chat_history` for older messages; the host transcript is not mounted." : `Recent context is already in your conversation. For anything older, **prefer the \`chat_history\` tool** — it returns structured results and honours edit/delete tombstones. The full log at \`${conversationPath}/log.jsonl\` records every observable message in this ${noun} (no tool calls or tool results, just user messages and your final replies${platform.logSenderSourcesSuffix}); use the bash+jq recipes below when \`chat_history\` can't express the projection you need.
-
-Row schema: \`{"date":"2026-04-30T16:55:00.000Z","ts":"${platform.logRowSchemaTsType}","user":"<id|bot>","userName":"...","displayName":"...","text":"...","attachments":[...],"isBot":false,"editedAt":"...","isDeleted":false}\`
-
-${platform.logEditsNote}
-
-Canonical "latest visible state" projection:
-\`\`\`bash
-cd ${conversationPath}
-jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true))' log.jsonl
-\`\`\`
-Compose date slicing (\`.[-30:]\`), text matching (\`test("foo"; "i")\`), or user filtering (\`.userName == "..."\`) on top of that as needed.`}
+Recent context is already in your conversation. Use \`chat_history\` for older messages; the host transcript is not mounted.
 
 ## Skills (Custom CLI Tools)
 ${writableContent ? `Skill edits are picked up on subsequent turns. Shared skills affect every ${noun}; make shared changes only when requested. Edit original attachments only when asked.
 
-` : ""}${isGondolin && !writableContent ? "Installed skills are read-only. Save reusable working files to scratch." : `**When you find yourself repeating a non-trivial recipe — API call, data transform, build sequence — promote it to a skill so you don't re-derive it next time.** Skills are reusable CLI tools you create for recurring tasks.
+**When you find yourself repeating a non-trivial recipe — API call, data transform, build sequence — promote it to a skill so you don't re-derive it next time.** Skills are reusable CLI tools you create for recurring tasks.
 
 ### Creating Skills
 Store in \`${workspacePath}/skills/<name>/\` (global) or \`${conversationPath}/skills/<name>/\` (${noun}-specific).
@@ -226,7 +168,7 @@ Usage instructions, examples, etc.
 Scripts are in: {baseDir}/
 \`\`\`
 
-\`name\` and \`description\` are required. Use \`{baseDir}\` as placeholder for the skill's directory path.`}
+\`name\` and \`description\` are required. Use \`{baseDir}\` as placeholder for the skill's directory path.` : "Installed skills are read-only. Save reusable working files to scratch."}
 
 ### Available Skills
 ${skills.length > 0 ? formatSkillsForPrompt(skills) : "(no skills installed yet)"}
@@ -263,48 +205,34 @@ ${skills.length > 0 ? formatSkillsForPrompt(skills) : "(no skills installed yet)
 - Webhook signal: \`{type:"immediate", ${ev.idFieldName}:${ev.idLiteral}, text:"New GitHub issue opened"}\`
 
 ### Listing / cancelling
-${isGondolin ? "Schedule files are host-managed. You cannot list or cancel events from the VM." : `- List: \`ls ${workspacePath}/events/\`
-- View: \`cat ${workspacePath}/events/foo.json\`
-- Cancel: \`rm ${workspacePath}/events/foo.json\` (one-shots and periodics persist as files; immediates are deleted on fire)`}
+Schedule files are host-managed. You cannot list or cancel events from the VM.
 
 ### When Events Trigger
 You receive a message like:
 \`\`\`
 [EVENT:dentist-1234.json:one-shot:2026-12-14T09:00:00+08:00] Dentist tomorrow
 \`\`\`
-Immediate and one-shot events auto-delete after firing. ${isGondolin ? "Periodic events persist until removed by the host operator." : "Periodic events persist until you delete them."}
+Immediate and one-shot events auto-delete after firing. Periodic events persist until removed by the host operator.
 
 ### Debouncing
-${isGondolin ? "Create events with \`schedule_event\`. When host or external integrations emit immediate events (email watchers, webhook handlers), debounce." : "When you write programs that emit immediate events (email watchers, webhook handlers), debounce."} 50 emails arriving in a minute should not produce 50 events — emit one summary event, or use a periodic check instead.
+Create events with \`schedule_event\`. When host or external integrations emit immediate events (email watchers, webhook handlers), debounce. 50 emails arriving in a minute should not produce 50 events — emit one summary event, or use a periodic check instead.
 
 ### Limits
 At most 5 events queued per ${noun}. Don't create excessive events.
 
 ## Memory
 **Update MEMORY.md whenever you learn a durable fact worth recalling next session — about the user, this ${noun}, or the project. Don't wait to be asked.** Write to:
-${isGondolin ? "" : `- Global (${workspacePath}/MEMORY.md): shared preferences, project info, cross-${noun} facts\n`}- ${Noun} (${conversationPath}/MEMORY.md): this ${noun}'s decisions, ongoing work, personal facts about the user
+- ${Noun} (${conversationPath}/MEMORY.md): this ${noun}'s decisions, ongoing work, personal facts about the user
 
 ### Current Memory
-${memory}${isGondolin ? "" : `
-
-## System Configuration Log
-Maintain ${workspacePath}/SYSTEM.md to log all environment modifications:
-- Installed packages (apk add, npm install, pip install)
-- Environment variables set
-- Config files modified (~/.gitconfig, cron jobs, etc.)
-- Skill dependencies installed
-
-The current SYSTEM.md contents are inlined below and refresh between turns — do not call \`read\` on SYSTEM.md to recall packages, env vars, config edits, or skill deps you've already installed. Append to it whenever you modify the environment.
-
-### Current System State
-${systemConfig}`}
+${memory}
 
 ## Tools
-- bash: Run shell commands (primary tool).${isGondolin ? " Truncated output files are available only during the current run." : " Install packages as needed."}
+- bash: Run shell commands (primary tool). Truncated output files are available only during the current run.
 - read: Read files
 - write: Create/overwrite files
 - edit: Surgical file edits
-- chat_history: Search older messages by free-text query and/or date range (see "Log Queries").${isGondolin ? "" : " Prefer this over the bash+jq recipes — structured results, easier to filter."}
+- chat_history: Search older messages by free-text query and/or date range (see "Log Queries").
 ${platform.extraToolsLines.length > 0 ? `${platform.extraToolsLines.join("\n")}\n` : ""}${platform.toolsAttachBlurb ? `- attach: ${platform.toolsAttachBlurb}\n` : ""}- schedule_event: Schedule immediate/one-shot/periodic events (see Events section)
 
 Follow each tool's parameter schema; include \`label\` only when that schema defines it. Codemode uses \`code\`; MCP tools have their own schemas.

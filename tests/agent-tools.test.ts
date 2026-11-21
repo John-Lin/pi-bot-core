@@ -8,7 +8,8 @@ import {
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBotTools, HostExecutor } from "../src/index.js";
+import { createBotTools } from "../src/index.js";
+import { HostExecutor } from "./helpers/host-executor.js";
 
 describe("workspace tools in the Pi agent pipeline", () => {
 	test("returns real tool results with SDK-recorded execution durations", async () => {

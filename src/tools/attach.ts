@@ -11,10 +11,8 @@ import { obj, opt, str } from "@earendil-works/pi-schema";
  * - `fileName`: explicit `title` from the tool args, or `basename(path)` when
  *   the LLM omitted it.
  *
- * Path translation (container → host) and existence checks are the platform
- * layer's responsibility — by the time this fires, `filePath` is whatever the
- * LLM called the tool with (typically still in container form), so the bot's
- * `setUploader` callback should resolve to a host path before doing IO.
+ * The platform must validate and export the guest path through the current
+ * Gondolin turn before uploading it. Never open a guest-supplied path on the host.
  */
 export type AttachUploader = (
 	filePath: string,
@@ -47,16 +45,8 @@ const attachSchema = obj({
  *   so that chats running in parallel cannot clobber each other's uploader.
  * - Uploader signature carries `{ label, fileName }`; the bot decides what to
  *   do with `label` (Telegram uses it as caption, Discord ignores).
- * - Rejects non-absolute paths before calling the uploader. pi-mom's
- *   `path.resolve(path)` is a no-op on absolute paths but silently resolves
- *   relative ones against the process CWD, which then surfaces as a generic
- *   "file not found" from the host-side translator. We stop at "must be
- *   absolute" rather than requiring `/workspace/` because bots support host
- *   mode, where the workspace root is a real host path (e.g. `/Users/.../data`).
- *
- * Note: containment (path must live under the workspace root) is NOT
- * currently enforced — any absolute path that exists on the host can be
- * attached. Agents are trusted to follow the tool description.
+ * - Rejects relative paths before calling the uploader. The current Gondolin
+ *   turn enforces allowed guest directories when the uploader exports the file.
  */
 export function createAttachTool(): AttachToolHandle {
 	let uploader: AttachUploader | null = null;

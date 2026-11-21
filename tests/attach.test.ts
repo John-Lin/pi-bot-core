@@ -80,7 +80,7 @@ describe("createAttachTool", () => {
 		expect(called).toBe(false);
 	});
 
-	test("accepts host-mode absolute paths outside /workspace/", async () => {
+	test("passes absolute paths to the platform uploader for validation", async () => {
 		const { tool, setUploader } = createAttachTool();
 		const calls: string[] = [];
 		setUploader(async (filePath) => {
@@ -140,7 +140,7 @@ describe("resolveFileName", () => {
 	});
 
 	test("leaves title untouched when neither has an extension", () => {
-		expect(resolveFileName("/a/b/Dockerfile", "build-recipe")).toBe("build-recipe");
+		expect(resolveFileName("/a/b/Makefile", "build-recipe")).toBe("build-recipe");
 	});
 
 	test("treats hidden-file path with no real extension correctly", () => {

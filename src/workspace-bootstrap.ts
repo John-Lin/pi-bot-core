@@ -144,7 +144,7 @@ export function readWorkspaceBootstrap(workspace: string, visibleWorkspace?: str
 			if (workspaceIdentity === undefined || !workspacePathIsUnchanged(workspaceIdentity)) {
 				return `### ${label}\n<${tag}>\n\n</${tag}>`;
 			}
-			// The host assembles this prompt even in Docker mode; read only the opened regular file.
+			// The host assembles the guest prompt; read only the opened regular file.
 			fd = openSync(path, constants.O_RDONLY | noFollow | (constants.O_NONBLOCK ?? 0));
 			const stats = fstatSync(fd);
 			if (stats.isFile() && workspacePathIsUnchanged(workspaceIdentity)) {
