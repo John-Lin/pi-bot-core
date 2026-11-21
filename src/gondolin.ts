@@ -210,7 +210,7 @@ export class GondolinTurn implements Executor {
 		let credential: GondolinWebCredential | undefined;
 		if (configured) {
 			const endpoint = new URL(configured.url);
-			if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.hash || !configured.value) {
+			if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.hash || !configured.value.trim()) {
 				throw new Error("A Gondolin web credential requires an HTTPS endpoint and a nonempty value");
 			}
 			credential = { ...configured, url: endpoint.href };

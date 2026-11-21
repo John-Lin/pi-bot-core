@@ -12,12 +12,13 @@ const placeholder = "fixture-vm-placeholder";
 test("fills only the configured header on the exact HTTPS POST", async () => {
 	const request = new Request(credential.url, {
 		method: "POST",
-		headers: { "x-test-api-key": placeholder, "content-type": "application/json" },
+		headers: { host: "api.example.com", "x-test-api-key": placeholder, "content-type": "application/json" },
 		body: JSON.stringify({ label: placeholder }),
 	});
 	const forwarded = applyGondolinCredential(request, credential, placeholder);
 	if (!(forwarded instanceof Request)) throw new Error("Expected the allowed request to be forwarded");
 	expect(forwarded.headers.get("x-test-api-key")).toBe(credential.value);
+	expect(forwarded.headers.get("host")).toBeNull();
 	expect(await forwarded.json()).toEqual({ label: placeholder });
 });
 
@@ -28,6 +29,7 @@ test("denies requests that would place the credential on another destination, pr
 		new Request("https://api.example.com/v1/models", { method: "POST", headers: { "x-test-api-key": placeholder } }),
 		new Request(credential.url, { headers: { "x-test-api-key": placeholder } }),
 		new Request(credential.url, { method: "POST", headers: { "x-other-header": placeholder } }),
+		new Request(credential.url, { method: "POST", headers: { host: "other.example.com", "x-test-api-key": placeholder } }),
 		new Request(credential.url, { method: "POST", headers: { "x-test-api-key": placeholder, "x-other-header": placeholder } }),
 		new Request("https://example.com/v1/interactions", { method: "POST", headers: { "x-test-api-key": credential.value } }),
 	];
@@ -48,12 +50,21 @@ test("leaves an unrelated public request unchanged", () => {
 	expect(new URL(request.url).searchParams.get("label")).toBe(placeholder);
 });
 
-test("does not replay a credential already added by the host", () => {
-	const first = new Request(credential.url, { method: "POST", headers: { "x-test-api-key": placeholder } });
-	const forwarded = applyGondolinCredential(first, credential, placeholder);
+test("does not use a connection-control header for credential injection", () => {
+	const request = new Request(credential.url, { method: "POST", headers: { connection: placeholder } });
+	const blocked = applyGondolinCredential(request, { ...credential, header: "Connection" }, placeholder);
+	if (!(blocked instanceof Response)) throw new Error("Expected a forbidden credential header to be blocked");
+	expect(blocked.status).toBe(403);
+});
+
+test.each([credential.value, ` \t${credential.value}\t `])("blocks a later request carrying a normalized fixture key (%j)", (value) => {
+	const rule = { ...credential, value };
+	const first = new Request(rule.url, { method: "POST", headers: { "x-test-api-key": placeholder } });
+	const forwarded = applyGondolinCredential(first, rule, placeholder);
 	if (!(forwarded instanceof Request)) throw new Error("Expected the first request to be forwarded");
-	const replay = new Request(credential.url, { method: "POST", headers: forwarded.headers });
-	const blocked = applyGondolinCredential(replay, credential, placeholder);
+	expect(forwarded.headers.get("x-test-api-key")).toBe(credential.value);
+	const later = new Request(rule.url, { method: "POST", headers: forwarded.headers });
+	const blocked = applyGondolinCredential(later, rule, placeholder);
 	if (!(blocked instanceof Response)) throw new Error("Expected replay of an injected credential to be blocked");
 	expect(blocked.status).toBe(403);
 });
