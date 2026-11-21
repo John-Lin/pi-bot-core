@@ -5,7 +5,7 @@ import { basename, join, posix } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { ReadonlyProvider, RealFSProvider, resolveImageSelector, ShadowProvider, VM } from "@earendil-works/gondolin";
+import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM } from "@earendil-works/gondolin";
 import { applyGondolinCredential, type GondolinWebCredential } from "./gondolin-credential.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
@@ -18,11 +18,13 @@ const IMAGE_PREPARE_TIMEOUT_MS = 120_000;
 const runFile = promisify(execFile);
 type FinishSlot = (failure?: Error) => void;
 
+function denyWorkspaceMutation(message: string): never {
+	throw Object.assign(new Error(message), { code: "EACCES", errno: ERRNO.EACCES });
+}
+
 /** Prevent guests from planting links that host skill discovery or downloads could follow. */
 class WorkspaceContentProvider extends RealFSProvider {
-	private readonly denyLink = (): never => {
-		throw Object.assign(new Error("Links are not allowed in writable content mounts"), { code: "EACCES" });
-	};
+	private readonly denyLink = () => denyWorkspaceMutation("Links are not allowed in writable content mounts");
 
 	override symlinkSync = this.denyLink;
 	override linkSync = this.denyLink;
@@ -235,7 +237,15 @@ export class GondolinTurn implements Executor {
 			onRequest: (request: Request) => applyGondolinCredential(request, credential, placeholder),
 		} : undefined;
 		const contentMount = (path: string) => this.writableWorkspaceContent
-			? new WorkspaceContentProvider(path)
+			? new SandboxVfsProvider(new WorkspaceContentProvider(path), {
+				before: ({ op, path, oldPath, newPath }) => {
+					// Both guest aliases must preserve the host-managed mount directory.
+					if ((path === "/" && (op === "rmdir" || op === "chmod")) ||
+						(op === "rename" && (oldPath === "/" || newPath === "/"))) {
+						denyWorkspaceMutation("Cannot modify the workspace mount root");
+					}
+				},
+			})
 			: new ReadonlyProvider(new RealFSProvider(path));
 		this.vm = new VM({
 			sandbox: { vmm: "qemu", imagePath, netEnabled: true, httpHooks, allowWebSockets: false },

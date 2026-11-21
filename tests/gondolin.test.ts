@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VM } from "@earendil-works/gondolin";
@@ -120,6 +120,30 @@ vmTest("does not let writable mounts plant host-visible filesystem links", async
 		expect(hard.code, JSON.stringify(hard)).not.toBe(0);
 		expect(hard.stderr).toContain("hard");
 		expect(await turn.exec(`test ! -L ${mount}/symbolic && test ! -e ${mount}/hard`)).toEqual({ stdout: "", stderr: "", code: 0 });
+	}
+}, 30_000);
+
+vmTest("preserves mounted directories and their modes while allowing changes inside them", async () => {
+	const turn = openTurn(new GondolinSandbox(1, { writableWorkspaceContent: true }));
+	const mounts = [
+		["/data/workspace/42/attachments", chat.attachmentsDir],
+		["/data/workspace/42/skills", chat.skillsDir],
+		["/data/workspace/skills", join(workspace, "skills")],
+	] as const;
+	for (const [guest, host] of mounts) {
+		const mode = statSync(host).mode;
+		const chmod = await turn.exec(`chmod 700 ${guest}`);
+		const rmdir = await turn.exec(`rmdir ${guest}`);
+		// Some mount points are protected by the guest kernel before reaching the provider.
+		expect(chmod.stdout).toBe("");
+		if (chmod.code === 0) expect(chmod.stderr).toBe("");
+		else expect(chmod.stderr).toContain("Permission denied");
+		expect(rmdir.code, guest).toBe(1);
+		expect(rmdir.stderr).toMatch(/Permission denied|Resource busy/);
+		expect(statSync(host).mode).toBe(mode);
+		expect(await turn.exec(`mkdir ${guest}/child && chmod 700 ${guest}/child && rmdir ${guest}/child`)).toEqual({
+			stdout: "", stderr: "", code: 0,
+		});
 	}
 }, 30_000);
 
