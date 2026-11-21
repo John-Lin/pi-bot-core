@@ -34,8 +34,14 @@ describe("ensureChatDir", () => {
 		});
 	}
 
-	for (const chatId of ["", ".", "..", "nested/chat", "nested/../MEMORY.md"]) {
-		test(`rejects chat ID ${JSON.stringify(chatId)} that is not a single directory name`, () => {
+	test("preserves a portable chat directory name", () => {
+		const paths = ensureChatDir(ws, "Room-42_test.v2");
+		expect(paths.chatDir).toBe(join(ws, "Room-42_test.v2"));
+		expect(existsSync(paths.memoryFile)).toBe(true);
+	});
+
+	for (const chatId of ["", ".", "..", "nested/chat", "nested/../MEMORY.md", "nested\\chat", "\u017fandbox", "chat\0id", "chat\n"]) {
+		test(`rejects invalid chat directory name ${JSON.stringify(chatId)} before writing`, () => {
 			const workspace = join(ws, "workspace");
 			expect(() => ensureChatDir(workspace, chatId)).toThrow(/single directory name/);
 			expect(readdirSync(ws)).toEqual([]);

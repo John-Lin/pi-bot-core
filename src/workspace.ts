@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { basename, join } from "path";
+import { join } from "path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { ensureWorkspaceDirectoriesAreSafe, WorkspaceBootstrapSecurityError } from "./workspace-bootstrap.js";
 
@@ -24,8 +24,9 @@ export interface ChatPaths {
  */
 export function ensureChatDir(workspace: string, chatId: number | string): ChatPaths {
 	const name = String(chatId);
-	if (!name || name === "." || name === ".." || basename(name) !== name) {
-		throw new WorkspaceBootstrapSecurityError("Chat ID must be a single directory name.");
+	// Use ASCII so filesystem-specific Unicode aliases cannot collide with shared paths.
+	if (!name || name === "." || name === ".." || /[^A-Za-z0-9._-]/.test(name)) {
+		throw new WorkspaceBootstrapSecurityError("Chat ID must be a single directory name using only ASCII letters, digits, hyphens, underscores, or periods.");
 	}
 	if ([MEMORY_FILE, SKILLS_DIR].some((reserved) => reserved.toLowerCase() === name.toLowerCase())) {
 		throw new WorkspaceBootstrapSecurityError(`Chat ID ${JSON.stringify(name)} conflicts with a reserved workspace name.`);
