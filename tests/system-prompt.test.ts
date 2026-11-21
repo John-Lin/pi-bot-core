@@ -180,11 +180,12 @@ describe("buildBaseSystemPrompt", () => {
 			const paths = ensureChatDir(workspace, "r1");
 			ensureWorkspaceBootstrap(workspace);
 			writeFileSync(join(workspace, "AGENTS.md"), "# Workspace instructions\nKeep test data local.\n");
+			writeFileSync(join(workspace, "USER.md"), "x".repeat(4_001));
 			writeFileSync(join(workspace, "MEMORY.md"), "Global memory.");
 			writeFileSync(paths.memoryFile, "Room memory.");
 			mkdirSync(join(paths.skillsDir, "local-recipe"));
 			writeFileSync(join(paths.skillsDir, "local-recipe", "SKILL.md"), "---\nname: local-recipe\ndescription: A local test recipe.\n---\nRun locally.\n");
-			const bootstrap = readWorkspaceBootstrap(workspace, "/workspace");
+			const bootstrap = readWorkspaceBootstrap(workspace);
 			const formattingSection = `${testPlatform.formattingSection}\n\n## Agent Workspace Files\n${bootstrap}`;
 			const p = buildBaseSystemPrompt({
 				...baseInput,
@@ -194,7 +195,8 @@ describe("buildBaseSystemPrompt", () => {
 			});
 			expect(existsSync(join(workspace, "access.json"))).toBe(false);
 			expect(p).toContain(formattingSection);
-			expect(p).toContain("<agents_md>\n# Workspace instructions\nKeep test data local.\n</agents_md>");
+			expect(p).toContain("### AGENTS.md (host-managed)\n<agents_md>\n# Workspace instructions\nKeep test data local.\n</agents_md>");
+			expect(p).toContain("[host-managed file truncated]\n</user_md>");
 			expect(p).toContain("<global_memory>\nGlobal memory.\n</global_memory>");
 			expect(p).toContain("<chat_memory>\nRoom memory.\n</chat_memory>");
 			expect(p).toContain("<name>local-recipe</name>");

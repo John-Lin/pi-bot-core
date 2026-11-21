@@ -58,7 +58,8 @@ import { ensureChatDir } from "pi-bot-core/workspace";
 
 await validateGondolinSandbox(); // Once at startup; checks QEMU and prepares the image.
 const sandbox = new GondolinSandbox(2); // Share one instance across the bot.
-const turn = sandbox.turn(ensureChatDir(workspace, chatId));
+const paths = ensureChatDir(workspace, chatId); // Checks all directories before creating the layout.
+const turn = sandbox.turn(paths);
 try {
   const tools = createBotTools(turn);
   // Run the agent with these tools until it is idle.
@@ -339,19 +340,19 @@ ensureWorkspaceBootstrap(workspace);
 
 // Every run: revalidate, then read fresh content for the system prompt.
 ensureWorkspacePathIsSafe(workspace);
-const workspaceBootstrap = readWorkspaceBootstrap(workspace, visibleWorkspacePath);
+const workspaceBootstrap = readWorkspaceBootstrap(workspace);
 ```
 
-This module is only available from the `pi-bot-core/workspace-bootstrap` subpath. It does not change `ensureChatDir` or other `pi-bot-core/workspace` behavior.
+This module is available from the `pi-bot-core/workspace-bootstrap` subpath. `ensureChatDir` validates its own directory layout before creating it; call `ensureWorkspacePathIsSafe` before other workspace storage operations.
 
 Caller contract:
 
 - `ensureWorkspacePathIsSafe(workspace)` throws `WorkspaceBootstrapSecurityError` when `fs.constants.O_NOFOLLOW` is unavailable (checked before any filesystem access) or when the workspace or any parent is a symbolic link or non-directory. Otherwise it creates missing directories. Call it before creating any workspace storage and again before each run.
 - `ensureWorkspaceBootstrap(workspace)` creates missing starter files at the workspace root with exclusive create, so existing files (including dangling links) are never overwritten. It does nothing if the workspace is missing or linked, and stops if the workspace path changes between files.
-- `readWorkspaceBootstrap(workspace, visibleWorkspace)` returns `### <visibleWorkspace>/<file>` headings with `<agents_md>`, `<soul_md>`, `<identity_md>`, and `<user_md>` sections, separated by blank lines. Content is trimmed. Missing, linked, or non-regular files, and a missing or changed workspace path, produce empty sections. `AGENTS.md`, `SOUL.md`, and `IDENTITY.md` are limited to 20,000 Unicode code points and `USER.md` to 4,000; longer content ends with `[truncated: read <visibleWorkspace>/<file> for the rest]`. It throws `WorkspaceBootstrapSecurityError` when `O_NOFOLLOW` is unavailable.
+- `readWorkspaceBootstrap(workspace)` returns host-managed headings with `<agents_md>`, `<soul_md>`, `<identity_md>`, and `<user_md>` sections, separated by blank lines. Content is trimmed. Missing, linked, or non-regular files, and a missing or changed workspace path, produce empty sections. `AGENTS.md`, `SOUL.md`, and `IDENTITY.md` are limited to 20,000 Unicode code points and `USER.md` to 4,000; longer content ends with `[host-managed file truncated]`. It throws `WorkspaceBootstrapSecurityError` when `O_NOFOLLOW` is unavailable.
 - Unexpected filesystem errors (for example `EACCES`) are thrown by all three functions.
 - `USER.md` lives at the workspace root and is shared by every chat using that workspace. Files are reread on every call, so edits apply to the next run.
-- Where the section goes in the system prompt, which visible path to show (normally `GONDOLIN_WORKSPACE`), how errors are presented to users, and when these functions are called are decided by each bot.
+- Each bot decides where to place these sections in its prompt and how to report errors. Omit the optional visible path for Gondolin: these files are read by the host and are not mounted in the VM.
 
 Limitations: the checks compare each path component's device and inode before and after operations and open files with `O_NOFOLLOW`, but they are not atomic. A process that can modify the workspace or its parents can still race the checks. This reduces accidental or casual symlink escapes; it is not a filesystem sandbox.
 
@@ -374,12 +375,25 @@ import {
   createScheduleTool,
 } from "pi-bot-core";
 
-const tools = [
-  ...createBotTools(turn),
-  createAttachTool().tool,                          // wire setUploader at run time
-  createChatHistoryTool({ logFilePath }),
-  createScheduleTool(scheduleConfig),               // bot supplies routing schema
-];
+// Use the active Gondolin turn. uploadAttachment is the bot's platform uploader.
+const attach = createAttachTool();
+attach.setUploader(async (path, { label, fileName }) => {
+  const bytes = await turn.readAttachment(path);
+  await uploadAttachment(bytes, { label, fileName });
+});
+
+try {
+  const tools = [
+    ...createBotTools(turn),
+    attach.tool,
+    createChatHistoryTool({ logFilePath }),
+    createScheduleTool(scheduleConfig),             // bot supplies routing schema
+  ];
+  // Run the agent with these tools until it is idle.
+} finally {
+  attach.setUploader(null);
+  await turn.close();
+}
 ```
 
 ## Sandbox: division of responsibilities
