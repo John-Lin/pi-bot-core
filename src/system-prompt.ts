@@ -97,7 +97,7 @@ export interface BaseSystemPromptInput {
 	memory: string;
 	/** SYSTEM.md blob (env mods log) to splice into the `### Current System State` subsection. */
 	systemConfig: string;
-	sandbox: SandboxConfig | { type: "gondolin" };
+	sandbox: SandboxConfig | { type: "gondolin"; writableWorkspaceContent?: boolean };
 	platform: PlatformConfig;
 	/**
 	 * Pre-built `## Live State` body lines. Joined with `\n` and placed at the end of the
@@ -133,11 +133,13 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 	const conversationPath = `${workspacePath}/${conversationId}`;
 	const isDocker = sandbox.type === "docker";
 	const isGondolin = sandbox.type === "gondolin";
+	const writableContent = isGondolin && sandbox.writableWorkspaceContent;
+	const contentAccess = writableContent ? "writable" : "read-only";
 
 	const envDescription = isGondolin
 		? `Workspace tools run inside a Gondolin VM with public HTTP(S) access. Private networks and loopback are blocked.
 - Commands start in ${conversationPath}; use ${conversationPath}/scratch for working files.
-- The VM is discarded at the end of this run. Only writes to scratch and this ${noun}'s memory persist.`
+- The VM is discarded at the end of this run. Only writes to scratch and this ${noun}'s memory${writableContent ? ", attachments, and skills, plus shared skills" : ""} persist.`
 		: isDocker
 		? `You are running inside a Docker container (Alpine Linux).
 - Bash working directory: / (use \`cd\` or absolute paths)
@@ -166,12 +168,12 @@ ${envDescription}
 
 ## Workspace Layout
 ${isGondolin ? `${workspacePath}/
-├── skills/                    # Shared skills (read-only)
+├── skills/                    # Shared skills (${contentAccess})
 ${platform.workspaceTreeLeafLine}
     ├── MEMORY.md              # ${Noun}-specific memory
-    ├── attachments/           # Files shared by the user (read-only)
+    ├── attachments/           # Files shared by the user (${contentAccess})
     ├── scratch/               # Persistent working files
-    └── skills/                # ${Noun}-specific skills (read-only)` : `${workspacePath}/
+    └── skills/                # ${Noun}-specific skills (${contentAccess})` : `${workspacePath}/
 ├── AGENTS.md                  # Shared agent instructions
 ├── SOUL.md                    # Shared persona
 ├── IDENTITY.md                # Shared identity
@@ -204,7 +206,9 @@ jq -sc 'group_by(.ts) | map(last) | map(select(.isDeleted != true))' log.jsonl
 Compose date slicing (\`.[-30:]\`), text matching (\`test("foo"; "i")\`), or user filtering (\`.userName == "..."\`) on top of that as needed.`}
 
 ## Skills (Custom CLI Tools)
-${isGondolin ? "Installed skills are read-only. Save reusable working files to scratch." : `**When you find yourself repeating a non-trivial recipe — API call, data transform, build sequence — promote it to a skill so you don't re-derive it next time.** Skills are reusable CLI tools you create for recurring tasks.
+${writableContent ? `Skill edits are picked up on subsequent turns. Shared skills affect every ${noun}; make shared changes only when requested. Edit original attachments only when asked.
+
+` : ""}${isGondolin && !writableContent ? "Installed skills are read-only. Save reusable working files to scratch." : `**When you find yourself repeating a non-trivial recipe — API call, data transform, build sequence — promote it to a skill so you don't re-derive it next time.** Skills are reusable CLI tools you create for recurring tasks.
 
 ### Creating Skills
 Store in \`${workspacePath}/skills/<name>/\` (global) or \`${conversationPath}/skills/<name>/\` (${noun}-specific).
