@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, s
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VM } from "@earendil-works/gondolin";
-import { GONDOLIN_IMAGE, GondolinSandbox, type GondolinTurn } from "../src/gondolin.js";
+import { GONDOLIN_IMAGE, GondolinSandbox, validateGondolinSandbox, type GondolinTurn } from "../src/gondolin.js";
+import { SandboxConfigError } from "../src/sandbox.js";
 import { createBashTool } from "../src/tools/bash.js";
 import { createReadTool } from "../src/tools/read.js";
 import { ensureChatDir, loadChatSkills, type ChatPaths } from "../src/workspace.js";
@@ -31,27 +32,87 @@ function openTurn(sandbox: GondolinSandbox, paths = chat): GondolinTurn {
 
 const vmTest = process.env.PI_BOT_TEST_GONDOLIN === "1" ? test : test.skip;
 const webTest = process.env.PI_BOT_TEST_GONDOLIN_WEB === "1" ? test : test.skip;
+const krunTest = process.env.PI_BOT_TEST_GONDOLIN_KRUN === "1" ? test : test.skip;
 
-vmTest("starts and runs a turn with only qemu-img on PATH", () => {
-	const qemuImg = Bun.which("qemu-img");
-	if (!qemuImg) throw new Error("Gondolin VM tests require qemu-img");
+function runWithVmCommands(commands: string[], script: string, env: Record<string, string>) {
 	const bin = join(workspace, "bin");
 	mkdirSync(bin);
-	symlinkSync(qemuImg, join(bin, "qemu-img"));
-	const result = Bun.spawnSync([process.execPath, "--no-env-file", "-e", `
-		import { GondolinSandbox, validateGondolinSandbox } from ${JSON.stringify(import.meta.resolve("../src/gondolin.js"))};
-		await validateGondolinSandbox();
-		const turn = new GondolinSandbox(1).turn(${JSON.stringify(chat)});
+	for (const command of commands) {
+		const path = Bun.which(command);
+		if (!path) throw new Error(`Gondolin VM tests require ${command}`);
+		symlinkSync(path, join(bin, command));
+	}
+	return Bun.spawnSync([process.execPath, "--no-env-file", "-e", `
+		import { GONDOLIN_IMAGE, GondolinSandbox, GondolinTurn, validateGondolinSandbox } from ${JSON.stringify(import.meta.resolve("../src/gondolin.js"))};
+		${script}
+	`], { env: { ...process.env, ...env, PATH: bin }, timeout: 30_000 });
+}
+
+function expectSandboxToRun(commands: string[], config: object | undefined, env: Record<string, string>): void {
+	const result = runWithVmCommands(commands, `
+		const config = ${JSON.stringify(config)};
+		await validateGondolinSandbox(config);
+		const paths = ${JSON.stringify(chat)};
+		const turn = config === undefined
+			? new GondolinTurn(paths, async () => () => {})
+			: new GondolinSandbox(1, config).turn(paths);
 		try {
 			process.stdout.write(JSON.stringify(await turn.exec("uname -s", { timeout: 20 })));
 		} finally {
 			await turn.close();
 		}
-	`], { env: { ...process.env, PATH: bin }, timeout: 30_000 });
+	`, env);
 	expect(result.exitCode, result.stderr.toString()).toBe(0);
 	expect(result.stderr.toString()).toBe("");
 	expect(JSON.parse(result.stdout.toString())).toEqual({ stdout: "Linux\n", stderr: "", code: 0 });
+}
+
+function expectQemuDefault(config?: object): void {
+	const emulator = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
+	expectSandboxToRun(["qemu-img", emulator], config, {
+		GONDOLIN_VMM: "krun",
+		GONDOLIN_KRUN_RUNNER: join(workspace, "missing-krun-runner"),
+	});
+}
+
+vmTest("defaults to QEMU even when the SDK environment requests krun", () => {
+	expectQemuDefault({});
 }, 35_000);
+
+vmTest("constructing a turn directly also defaults to QEMU", () => {
+	expectQemuDefault();
+}, 35_000);
+
+vmTest("startup checks the QEMU emulator for the cached guest architecture", () => {
+	const nativeEmulator = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
+	const guestArch = process.arch === "arm64" ? "x86_64" : "aarch64";
+	const assets = { kernel: "kernel", initramfs: "initramfs", rootfs: "rootfs" };
+	const image = join(workspace, "guest-image");
+	mkdirSync(image);
+	for (const name of Object.values(assets)) writeFileSync(join(image, name), "fixture");
+	writeFileSync(join(image, "manifest.json"), JSON.stringify({
+		buildId: "99f935e1-c1d0-4e7e-bdfe-c855c2d4e2e7", config: { arch: guestArch }, assets,
+	}));
+	const result = runWithVmCommands(["qemu-img", nativeEmulator], `
+		import { importImageFromDirectory, setImageRef } from "@earendil-works/gondolin";
+		const { buildId, arch } = importImageFromDirectory(${JSON.stringify(image)});
+		setImageRef(GONDOLIN_IMAGE, buildId, arch);
+		await validateGondolinSandbox();
+	`, { GONDOLIN_IMAGE_STORE: join(workspace, "image-store") });
+	expect(result.exitCode, result.stderr.toString()).toBe(1);
+	expect(result.stderr.toString()).toContain(`qemu-system-${guestArch} is not usable`);
+}, 35_000);
+
+krunTest("starts a configured krun turn without a QEMU system emulator", () => {
+	expectSandboxToRun(["qemu-img"], { backend: "krun" }, { GONDOLIN_VMM: "qemu" });
+}, 35_000);
+
+test.each(["", "libkrun", null])("rejects an invalid backend from deployment config (%j)", async (backend) => {
+	// @ts-expect-error Simulate config read at runtime without TypeScript validation.
+	expect(() => new GondolinSandbox(1, { backend })).toThrow(SandboxConfigError);
+	// @ts-expect-error Startup validation must reject the same invalid config.
+	await expect(validateGondolinSandbox({ backend })).rejects.toThrow(SandboxConfigError);
+});
 
 webTest("allows public HTTPS by default while denying private HTTP destinations", async () => {
 	const command = "curl -fsS --max-time 8 https://example.com/";

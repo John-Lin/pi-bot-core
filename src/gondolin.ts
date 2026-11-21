@@ -5,7 +5,7 @@ import { basename, join, posix } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM } from "@earendil-works/gondolin";
+import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM, type ResolvedImage } from "@earendil-works/gondolin";
 import { applyGondolinCredential, normalizeGondolinCredential, type ActiveGondolinCredential, type GondolinWebCredential } from "./gondolin-credential.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
@@ -14,7 +14,6 @@ import type { ChatPaths } from "./workspace.js";
 export const GONDOLIN_IMAGE = "alpine-base:0.3.2";
 export const GONDOLIN_WORKSPACE = "/workspace";
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
-const VMM = "krun";
 const VM_START_TIMEOUT_MS = 15_000;
 const IMAGE_PREPARE_TIMEOUT_MS = 120_000;
 const runFile = promisify(execFile);
@@ -34,35 +33,63 @@ class WorkspaceContentProvider extends RealFSProvider {
 	override link = this.symlink;
 }
 
+export type GondolinBackend = "qemu" | "krun";
+const DEFAULT_BACKEND: GondolinBackend = "qemu";
+
 export interface GondolinSandboxOptions {
+	/** VM backend. Defaults to QEMU; krun must be selected explicitly. */
+	backend?: GondolinBackend;
 	/** Expose a placeholder for a host credential scoped to exact HTTPS POST URLs and one header. */
 	credential?: GondolinWebCredential;
 	/** Allow guest writes to chat attachments, chat skills, and shared skills. */
 	writableWorkspaceContent?: boolean;
 }
 
-/** Cache the pinned image and verify that a krun VM can boot on this host. */
-export async function validateGondolinSandbox(): Promise<void> {
-	if (!(process.platform === "darwin" && process.arch === "arm64") && !(process.platform === "linux" && process.arch === "x64")) {
-		throw new SandboxConfigError("This Gondolin configuration requires Apple Silicon macOS or x64 Linux for the packaged krun runner");
-	}
+function resolveBackend(backend: unknown): GondolinBackend {
+	if (backend === undefined) return DEFAULT_BACKEND;
+	if (backend === "qemu" || backend === "krun") return backend;
+	throw new SandboxConfigError('Invalid Gondolin backend; expected "qemu" or "krun"');
+}
+
+async function requireCommand(command: string): Promise<void> {
 	try {
-		await runFile("qemu-img", ["--version"], { timeout: 5_000 });
+		await runFile(command, ["--version"], { timeout: 5_000 });
 	} catch {
-		throw new SandboxConfigError("qemu-img is not usable; install it for the VM's copy-on-write disk and check the bot's PATH");
+		throw new SandboxConfigError(`${command} is not usable; install it and check the bot's PATH`);
 	}
+}
+
+/** Check the selected backend's startup requirements and cache the pinned image. */
+export async function validateGondolinSandbox(options: Pick<GondolinSandboxOptions, "backend"> = {}): Promise<void> {
+	const backend = resolveBackend(options.backend);
+	if (!["darwin", "linux"].includes(process.platform) || !["arm64", "x64"].includes(process.arch)) {
+		throw new SandboxConfigError("Gondolin requires macOS or Linux on arm64 or x64");
+	}
+	if (backend === "krun" && !(process.platform === "darwin" && process.arch === "arm64") && !(process.platform === "linux" && process.arch === "x64")) {
+		throw new SandboxConfigError("The packaged Gondolin krun runner requires Apple Silicon macOS or x64 Linux");
+	}
+	await requireCommand("qemu-img");
+	let image: ResolvedImage;
 	try {
 		// Run the pull in its own process because the SDK's image fetch has no AbortSignal.
 		const cli = fileURLToPath(new URL("./dist/bin/gondolin.js", import.meta.resolve("@earendil-works/gondolin/package.json")));
 		await runFile(process.execPath, [cli, "image", "pull", GONDOLIN_IMAGE], {
 			timeout: IMAGE_PREPARE_TIMEOUT_MS, killSignal: "SIGKILL",
 		});
+		// The SDK selects the emulator from the guest manifest, not the host architecture.
+		image = resolveImageSelector(resolveImageSelector(GONDOLIN_IMAGE).assetDir);
 	} catch (error) {
 		throw new SandboxConfigError(`Cannot prepare Gondolin image ${GONDOLIN_IMAGE} (startup budget: ${IMAGE_PREPARE_TIMEOUT_MS / 1000} seconds): ${String(error)}`);
 	}
+	if (backend === "qemu") {
+		const arch = image.arch ?? (process.arch === "arm64" ? "aarch64" : "x86_64");
+		await requireCommand(`qemu-system-${arch}`);
+		return;
+	}
+	// Only a boot can confirm that the krun runner can use the host hypervisor.
 	try {
 		const vm = new VM({
-			sandbox: { vmm: VMM, imagePath: resolveImageSelector(GONDOLIN_IMAGE).assetDir, netEnabled: false },
+			sandbox: { vmm: backend, imagePath: image.assetDir, netEnabled: false },
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 		});
 		try {
@@ -81,6 +108,7 @@ export class GondolinSandbox {
 	private failure?: Error;
 	private readonly waiters = new Set<() => void>();
 	private readonly credential?: ActiveGondolinCredential;
+	private readonly backend: GondolinBackend;
 
 	constructor(
 		private readonly maxConcurrent: number,
@@ -89,6 +117,7 @@ export class GondolinSandbox {
 		if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1) {
 			throw new Error("Gondolin needs a positive VM concurrency limit");
 		}
+		this.backend = resolveBackend(options.backend);
 		this.credential = options.credential && normalizeGondolinCredential(options.credential);
 	}
 
@@ -98,7 +127,7 @@ export class GondolinSandbox {
 		}
 		const memory = lstatSync(paths.memoryFile);
 		if (!memory.isFile() || memory.nlink !== 1) throw new Error("Gondolin MEMORY.md must be an unlinked regular file");
-		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.credential, this.options.writableWorkspaceContent);
+		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.credential, this.options.writableWorkspaceContent, this.backend);
 	}
 
 	private async acquire(signal: AbortSignal): Promise<FinishSlot> {
@@ -140,6 +169,7 @@ export class GondolinTurn implements Executor {
 		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
 		private readonly credential?: ActiveGondolinCredential,
 		private readonly writableWorkspaceContent = false,
+		private readonly backend: GondolinBackend = DEFAULT_BACKEND,
 	) {
 		this.cwd = posix.join(GONDOLIN_WORKSPACE, basename(paths.chatDir));
 	}
@@ -255,7 +285,7 @@ export class GondolinTurn implements Executor {
 			})
 			: new ReadonlyProvider(new RealFSProvider(path));
 		this.vm = new VM({
-			sandbox: { vmm: VMM, imagePath, netEnabled: true, httpHooks, allowWebSockets: false },
+			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks, allowWebSockets: false },
 			env: credential && placeholder ? { [credential.env]: placeholder } : undefined,
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 			vfs: {

@@ -56,8 +56,9 @@ import { createBotTools } from "pi-bot-core";
 import { GondolinSandbox, validateGondolinSandbox } from "pi-bot-core/gondolin";
 import { ensureChatDir } from "pi-bot-core/workspace";
 
-await validateGondolinSandbox(); // Once at startup; prepares the image and checks that krun can boot.
-const sandbox = new GondolinSandbox(2); // Share one instance across the bot.
+const sandboxOptions = { backend: "qemu" } as const; // Use "krun" to opt in.
+await validateGondolinSandbox(sandboxOptions); // Once at startup.
+const sandbox = new GondolinSandbox(2, sandboxOptions); // Share one instance across the bot.
 const paths = ensureChatDir(workspace, chatId); // Checks all directories before creating the layout.
 const turn = sandbox.turn(paths);
 try {
@@ -70,7 +71,7 @@ try {
 
 The chat ID must be a single directory name using only ASCII letters, digits, `-`, `_`, or `.`. It cannot be empty, `.` or `..`. `MEMORY.md` and `skills` are reserved at the workspace root, regardless of case.
 
-Gondolin runs these Linux VMs with the krun/libkrun backend. It uses the pinned `alpine-base:0.3.2` image, with public HTTP(S) available in every VM. Private addresses, generic TCP/UDP, and WebSocket upgrades are blocked. A guest can send chat-visible data to public destinations, so allow only trusted users or groups to invoke guest tools. The optional `credential` passed to `new GondolinSandbox(2, { credential })` exposes a placeholder in `credential.env` and substitutes `credential.value` only into `credential.header` on a POST to an exact HTTPS URL in `credential.urls`. Use a nonempty URL array without user info, queries, fragments, or wildcards. The scope is validated even if the value is absent or blank, which disables forwarding. The approved URL determines the upstream authority, and subsequent requests carrying the injected value are rejected. Keep the real value in the host process. Startup validation prepares the image with a two-minute deadline and boots a short-lived offline VM to check the host setup. The first workspace tool call in each turn boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM. Set `PI_BOT_TEST_GONDOLIN_WEB=1` to also test public HTTPS against `example.com`.
+Gondolin defaults to QEMU. Bots can pass `backend: "krun"` to select libkrun explicitly; there is no automatic fallback. Pass the same options to startup validation and the sandbox constructor so that the backend you validate is the one used for turns. Gondolin uses the pinned `alpine-base:0.3.2` image, with public HTTP(S) available in every VM. Private addresses, generic TCP/UDP, and WebSocket upgrades are blocked. A guest can send chat-visible data to public destinations, so allow only trusted users or groups to invoke guest tools. The optional `credential` passed to `new GondolinSandbox(2, { credential })` exposes a placeholder in `credential.env` and substitutes `credential.value` only into `credential.header` on a POST to an exact HTTPS URL in `credential.urls`. Use a nonempty URL array without user info, queries, fragments, or wildcards. The scope is validated even if the value is absent or blank, which disables forwarding. The approved URL determines the upstream authority, and subsequent requests carrying the injected value are rejected. Keep the real value in the host process. Startup validation checks the selected backend's prerequisites and prepares the image with a two-minute deadline. For krun, it also boots a short-lived offline VM to check the host hypervisor. The first workspace tool call in each turn boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM. Set `PI_BOT_TEST_GONDOLIN_WEB=1` to also test public HTTPS against `example.com`.
 
 With `writableWorkspaceContent: true`, the current chat's attachments (including originals), chat skills, and shared skills also accept persistent writes. Guests can edit contents but cannot remove the mount directories, change their permissions, or create symbolic or hard links in them. Host code reads skills and downloads attachments outside the VM's filesystem. Only enable this for trusted chats: edits to the shared skills affect other chats. Pass the same `writableWorkspaceContent` option directly to `buildBaseSystemPrompt()` so the agent sees the actual permissions. The prompt describes the Linux VM sandbox; pass `GONDOLIN_WORKSPACE` as `workspacePath`.
 
@@ -417,12 +418,12 @@ Tool parameter schemas use `@earendil-works/pi-schema` instead of a direct TypeB
 
 When supplying `createScheduleTool` parameters, use pi-schema builders (`obj`, `str`, `num`, `opt`, etc.); routing callback arguments are inferred with pi-schema's `Static`. Unlike the built-in schemas here, `obj(properties)` is closed by default; pass `{ open: true }` if your schema should accept extra fields.
 
-Install with optional dependencies enabled: Gondolin ships prebuilt platform runners that bundle libkrun. The pinned image contains the krun kernel assets. Gondolin labels the [krun backend](https://github.com/earendil-works/gondolin/blob/v0.14.0/docs/backends.md) experimental.
+Both VM backends use `qemu-img` for copy-on-write disks. Put it on the bot's `PATH` (Homebrew: `qemu`; Debian/Ubuntu: `qemu-utils`). Cold image downloads require `tar` with gzip support (`gzip` must also be on `PATH` for GNU tar).
 
-- **Apple Silicon macOS:** The packaged runner targets macOS 15 or later and uses Hypervisor.framework.
-- **x64 Linux:** The packaged runner needs glibc 2.36 or later, `libcap-ng.so.0` and `libgcc_s.so.1` (Debian/Ubuntu: `libcap-ng0` and `libgcc-s1`), and read/write access to `/dev/kvm` for the bot user.
-
-Put `qemu-img` on the bot's `PATH` for copy-on-write disks (the Homebrew `qemu` package or Debian/Ubuntu `qemu-utils` package provides it). The QEMU system emulator is not used. Cold image downloads require `tar` with gzip support (`gzip` must also be on `PATH` for GNU tar).
+- **QEMU (default):** On macOS or Linux, put the emulator for the guest image architecture on `PATH`: `qemu-system-aarch64` for arm64 or `qemu-system-x86_64` for x64. The pinned image normally matches the host. On macOS, Gondolin uses Hypervisor.framework acceleration for same-architecture guests.
+- **[krun](https://github.com/earendil-works/gondolin/blob/v0.14.0/docs/backends.md) (experimental):** The QEMU system emulator is not needed. Install with optional dependencies enabled so Gondolin can use the packaged runner with bundled libkrun. The pinned image contains the krun kernel assets.
+  - **Apple Silicon macOS:** The packaged runner targets macOS 15 or later and uses Hypervisor.framework.
+  - **x64 Linux:** The packaged runner needs glibc 2.36 or later, `libcap-ng.so.0` and `libgcc_s.so.1` (Debian/Ubuntu: `libcap-ng0` and `libgcc-s1`), and read/write access to `/dev/kvm` for the bot user.
 
 ## Development
 
@@ -431,6 +432,8 @@ bun --no-env-file install --frozen-lockfile
 bun --no-env-file run typecheck
 bun test --no-env-file
 ```
+
+CI runs the real-VM tests on QEMU only. Before running real-VM tests locally, prepare the pinned image by calling `validateGondolinSandbox()` for QEMU or `validateGondolinSandbox({ backend: "krun" })` for krun. On a suitable host, opt in to the krun smoke test with `PI_BOT_TEST_GONDOLIN_KRUN=1 bun test tests/gondolin.test.ts -t 'configured krun turn'`.
 
 `typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI, as well as the event lifecycle and shared system-prompt tests, the Codemode/MCP tests, the shared progress and SDK progress-integration tests, and their fixtures.
 
