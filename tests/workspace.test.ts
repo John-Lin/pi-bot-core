@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { ensureChatDir, readMemory } from "../src/workspace.js";
+import { WorkspaceBootstrapSecurityError } from "../src/workspace-bootstrap.js";
 
 let ws: string;
 
 beforeEach(() => {
-	ws = mkdtempSync(join(tmpdir(), "pi-bot-ws-"));
+	ws = mkdtempSync(join(realpathSync(tmpdir()), "pi-bot-ws-"));
 });
 
 afterEach(() => {
@@ -25,6 +26,21 @@ describe("ensureChatDir", () => {
 		expect(existsSync(paths.scratchDir)).toBe(true);
 		expect(existsSync(paths.skillsDir)).toBe(true);
 	});
+
+	for (const linkedPath of ["workspace", "workspace/skills", "workspace/123", "workspace/123/attachments", "workspace/123/scratch", "workspace/123/skills"]) {
+		test(`rejects a linked ${linkedPath} before initializing the skeleton`, () => {
+			const external = join(ws, "external");
+			const workspace = join(ws, "workspace");
+			const link = join(ws, linkedPath);
+			mkdirSync(external);
+			mkdirSync(dirname(link), { recursive: true });
+			symlinkSync(external, link);
+			const before = readdirSync(ws, { recursive: true }).sort();
+
+			expect(() => ensureChatDir(workspace, 123)).toThrow(WorkspaceBootstrapSecurityError);
+			expect(readdirSync(ws, { recursive: true }).sort()).toEqual(before);
+		});
+	}
 
 	test("does not create a memory file through a dangling symlink", () => {
 		const paths = ensureChatDir(ws, 123);

@@ -1,8 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
-
-const PER_CHAT_SUBDIRS = ["attachments", "scratch", "skills"] as const;
+import { ensureWorkspaceDirectoriesAreSafe } from "./workspace-bootstrap.js";
 
 export interface ChatPaths {
 	workspace: string;
@@ -17,20 +16,12 @@ export interface ChatPaths {
 /**
  * Ensure the workspace root and per-chat directory skeleton exist.
  * Creates `<workspace>/{MEMORY.md, skills/}` and
- * `<workspace>/<chatId>/{MEMORY.md, attachments/, scratch/, skills/}`.
+ * `<workspace>/<chatId>/{MEMORY.md, attachments/, scratch/, skills/}` after
+ * checking all directory paths for symbolic links and non-directory components.
  */
 export function ensureChatDir(workspace: string, chatId: number | string): ChatPaths {
-	mkdirSync(workspace, { recursive: true });
-	mkdirSync(join(workspace, "skills"), { recursive: true });
-	touchFile(join(workspace, "MEMORY.md"));
-
 	const chatDir = join(workspace, String(chatId));
-	for (const sub of PER_CHAT_SUBDIRS) {
-		mkdirSync(join(chatDir, sub), { recursive: true });
-	}
-	touchFile(join(chatDir, "MEMORY.md"));
-
-	return {
+	const paths: ChatPaths = {
 		workspace,
 		chatDir,
 		memoryFile: join(chatDir, "MEMORY.md"),
@@ -39,6 +30,10 @@ export function ensureChatDir(workspace: string, chatId: number | string): ChatP
 		scratchDir: join(chatDir, "scratch"),
 		attachmentsDir: join(chatDir, "attachments"),
 	};
+	ensureWorkspaceDirectoriesAreSafe([join(workspace, "skills"), paths.skillsDir, paths.scratchDir, paths.attachmentsDir]);
+	touchFile(join(workspace, "MEMORY.md"));
+	touchFile(paths.memoryFile);
+	return paths;
 }
 
 function touchFile(path: string): void {

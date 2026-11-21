@@ -28,22 +28,17 @@ const BOOTSTRAP_FILES = [
 
 /** Ensure the workspace exists without traversing a persistent linked path component. */
 export function ensureWorkspacePathIsSafe(workspace: string): void {
+	ensureWorkspaceDirectoriesAreSafe([workspace]);
+}
+
+/** Check every destination before creating any part of a workspace layout. */
+export function ensureWorkspaceDirectoriesAreSafe(directories: readonly string[]): void {
 	assertNoFollowSupport();
-	const absolute = resolve(workspace);
-	const root = parse(absolute).root;
-	let current = root;
-	for (const part of absolute.slice(root.length).split(sep).filter(Boolean)) {
-		current = join(current, part);
-		try {
-			const stats = lstatSync(current);
-			if (stats.isSymbolicLink() || !stats.isDirectory()) throw unsafeWorkspacePathError();
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-			mkdirSync(absolute, { recursive: true });
-			break;
-		}
+	const missing = directories.filter((path) => inspectWorkspacePath(path, true) === undefined);
+	for (const path of missing) mkdirSync(resolve(path), { recursive: true });
+	for (const path of directories) {
+		if (inspectWorkspacePath(path) === undefined) throw unsafeWorkspacePathError();
 	}
-	if (inspectWorkspacePath(workspace) === undefined) throw unsafeWorkspacePathError();
 }
 
 /** Seed shared workspace instructions and preferences without replacing existing files. */
@@ -66,7 +61,7 @@ interface PathIdentity {
 	inode: bigint;
 }
 
-function inspectWorkspacePath(workspace: string): PathIdentity[] | undefined {
+function inspectWorkspacePath(workspace: string, rejectUnsafe = false): PathIdentity[] | undefined {
 	const absolute = resolve(workspace);
 	const root = parse(absolute).root;
 	const identities: PathIdentity[] = [];
@@ -75,7 +70,10 @@ function inspectWorkspacePath(workspace: string): PathIdentity[] | undefined {
 		current = join(current, part);
 		try {
 			const stats = lstatSync(current, { bigint: true });
-			if (stats.isSymbolicLink() || !stats.isDirectory()) return undefined;
+			if (stats.isSymbolicLink() || !stats.isDirectory()) {
+				if (rejectUnsafe) throw unsafeWorkspacePathError();
+				return undefined;
+			}
 			identities.push({ path: current, device: stats.dev, inode: stats.ino });
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
