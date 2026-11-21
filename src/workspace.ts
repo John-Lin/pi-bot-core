@@ -23,6 +23,7 @@ export interface ChatPaths {
  * checking all directory paths for symbolic links and non-directory components.
  */
 export function ensureChatDir(workspace: string, chatId: number | string): ChatPaths {
+	if (workspace === "") throw new WorkspaceBootstrapSecurityError("Workspace path must not be empty.");
 	const name = String(chatId);
 	// Use ASCII so filesystem-specific Unicode aliases cannot collide with shared paths.
 	if (!name || name === "." || name === ".." || /[^A-Za-z0-9._-]/.test(name)) {

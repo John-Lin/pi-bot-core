@@ -27,6 +27,17 @@ describe("ensureChatDir", () => {
 		expect(existsSync(paths.skillsDir)).toBe(true);
 	});
 
+	test("rejects an empty workspace without writing to the current directory", () => {
+		const cwd = process.cwd();
+		try {
+			process.chdir(ws);
+			expect(() => ensureChatDir("", 123)).toThrow("Workspace path must not be empty.");
+			expect(readdirSync(ws)).toEqual([]);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
 	for (const chatId of ["MEMORY.md", "memory.md", "skills", "SKILLS"]) {
 		test(`rejects reserved chat directory name ${chatId} before writing`, () => {
 			expect(() => ensureChatDir(ws, chatId)).toThrow(/reserved workspace name/);
