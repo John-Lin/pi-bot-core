@@ -31,7 +31,6 @@ const BOOTSTRAP_FILES = [
 ] as const;
 
 const NO_FOLLOW_UNSUPPORTED = "Cannot safely load workspace bootstrap files: fs.constants.O_NOFOLLOW is not supported on this platform.";
-const LINKED_WORKSPACE = "Cannot safely use workspace: the path or one of its parents is a symbolic link.";
 
 function makeTempWorkspace(prefix: string): string {
 	return mkdtempSync(join(realpathSync(tmpdir()), prefix));
@@ -107,7 +106,7 @@ describe("ensureWorkspacePathIsSafe", () => {
 				const workspace = component === "root" ? link : join(link, "missing", "workspace");
 
 				expect(() => ensureWorkspacePathIsSafe(workspace)).toThrow(WorkspaceBootstrapSecurityError);
-				expect(() => ensureWorkspacePathIsSafe(workspace)).toThrow(LINKED_WORKSPACE);
+				expect(() => ensureWorkspacePathIsSafe(workspace)).toThrow(`${JSON.stringify(link)} is a symbolic link`);
 				expect(readdirSync(external)).toEqual([]);
 			} finally {
 				rmSync(root, { recursive: true, force: true });
@@ -122,6 +121,7 @@ describe("ensureWorkspacePathIsSafe", () => {
 				const workspace = component === "root" ? file : join(file, "workspace");
 
 				expect(() => ensureWorkspacePathIsSafe(workspace)).toThrow(WorkspaceBootstrapSecurityError);
+				expect(() => ensureWorkspacePathIsSafe(workspace)).toThrow(`${JSON.stringify(file)} is not a directory`);
 				expect(readFileSync(file, "utf8")).toBe("unchanged");
 			} finally {
 				rmSync(root, { recursive: true, force: true });

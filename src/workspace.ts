@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { basename, join } from "path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
-import { ensureWorkspaceDirectoriesAreSafe } from "./workspace-bootstrap.js";
+import { ensureWorkspaceDirectoriesAreSafe, WorkspaceBootstrapSecurityError } from "./workspace-bootstrap.js";
+
+const MEMORY_FILE = "MEMORY.md";
+const SKILLS_DIR = "skills";
 
 export interface ChatPaths {
 	workspace: string;
@@ -20,18 +23,25 @@ export interface ChatPaths {
  * checking all directory paths for symbolic links and non-directory components.
  */
 export function ensureChatDir(workspace: string, chatId: number | string): ChatPaths {
-	const chatDir = join(workspace, String(chatId));
+	const name = String(chatId);
+	if (!name || name === "." || name === ".." || basename(name) !== name) {
+		throw new WorkspaceBootstrapSecurityError("Chat ID must be a single directory name.");
+	}
+	if ([MEMORY_FILE, SKILLS_DIR].some((reserved) => reserved.toLowerCase() === name.toLowerCase())) {
+		throw new WorkspaceBootstrapSecurityError(`Chat ID ${JSON.stringify(name)} conflicts with a reserved workspace name.`);
+	}
+	const chatDir = join(workspace, name);
 	const paths: ChatPaths = {
 		workspace,
 		chatDir,
-		memoryFile: join(chatDir, "MEMORY.md"),
+		memoryFile: join(chatDir, MEMORY_FILE),
 		contextFile: join(chatDir, "context.jsonl"),
-		skillsDir: join(chatDir, "skills"),
+		skillsDir: join(chatDir, SKILLS_DIR),
 		scratchDir: join(chatDir, "scratch"),
 		attachmentsDir: join(chatDir, "attachments"),
 	};
-	ensureWorkspaceDirectoriesAreSafe([join(workspace, "skills"), paths.skillsDir, paths.scratchDir, paths.attachmentsDir]);
-	touchFile(join(workspace, "MEMORY.md"));
+	ensureWorkspaceDirectoriesAreSafe([join(workspace, SKILLS_DIR), paths.skillsDir, paths.scratchDir, paths.attachmentsDir]);
+	touchFile(join(workspace, MEMORY_FILE));
 	touchFile(paths.memoryFile);
 	return paths;
 }
@@ -53,7 +63,7 @@ function touchFile(path: string): void {
  */
 export function readMemory(paths: ChatPaths): string {
 	const parts: string[] = [];
-	const globalMem = tryRead(join(paths.workspace, "MEMORY.md"));
+	const globalMem = tryRead(join(paths.workspace, MEMORY_FILE));
 	if (globalMem) parts.push(`<global_memory>\n${globalMem}\n</global_memory>`);
 	const chatMem = tryRead(paths.memoryFile);
 	if (chatMem) parts.push(`<chat_memory>\n${chatMem}\n</chat_memory>`);
@@ -83,7 +93,7 @@ export function loadChatSkills(paths: ChatPaths, guestWorkspace?: string): Skill
 		baseDir: translate(s.baseDir),
 	});
 
-	const globalSkillsDir = join(paths.workspace, "skills");
+	const globalSkillsDir = join(paths.workspace, SKILLS_DIR);
 	for (const s of loadSkillsFromDir({ dir: globalSkillsDir, source: "workspace" }).skills) {
 		map.set(s.name, apply(s));
 	}

@@ -27,6 +27,21 @@ describe("ensureChatDir", () => {
 		expect(existsSync(paths.skillsDir)).toBe(true);
 	});
 
+	for (const chatId of ["MEMORY.md", "memory.md", "skills", "SKILLS"]) {
+		test(`rejects reserved chat directory name ${chatId} before writing`, () => {
+			expect(() => ensureChatDir(ws, chatId)).toThrow(/reserved workspace name/);
+			expect(readdirSync(ws)).toEqual([]);
+		});
+	}
+
+	for (const chatId of ["", ".", "..", "nested/chat", "nested/../MEMORY.md"]) {
+		test(`rejects chat ID ${JSON.stringify(chatId)} that is not a single directory name`, () => {
+			const workspace = join(ws, "workspace");
+			expect(() => ensureChatDir(workspace, chatId)).toThrow(/single directory name/);
+			expect(readdirSync(ws)).toEqual([]);
+		});
+	}
+
 	for (const linkedPath of ["workspace", "workspace/skills", "workspace/123", "workspace/123/attachments", "workspace/123/scratch", "workspace/123/skills"]) {
 		test(`rejects a linked ${linkedPath} before initializing the skeleton`, () => {
 			const external = join(ws, "external");

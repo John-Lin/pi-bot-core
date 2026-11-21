@@ -37,7 +37,9 @@ export function ensureWorkspaceDirectoriesAreSafe(directories: readonly string[]
 	const missing = directories.filter((path) => inspectWorkspacePath(path, true) === undefined);
 	for (const path of missing) mkdirSync(resolve(path), { recursive: true });
 	for (const path of directories) {
-		if (inspectWorkspacePath(path) === undefined) throw unsafeWorkspacePathError();
+		if (inspectWorkspacePath(path, true) === undefined) {
+			throw unsafeWorkspacePathError(resolve(path), "no longer exists");
+		}
 	}
 }
 
@@ -71,7 +73,9 @@ function inspectWorkspacePath(workspace: string, rejectUnsafe = false): PathIden
 		try {
 			const stats = lstatSync(current, { bigint: true });
 			if (stats.isSymbolicLink() || !stats.isDirectory()) {
-				if (rejectUnsafe) throw unsafeWorkspacePathError();
+				if (rejectUnsafe) {
+					throw unsafeWorkspacePathError(current, stats.isSymbolicLink() ? "is a symbolic link" : "is not a directory");
+				}
 				return undefined;
 			}
 			identities.push({ path: current, device: stats.dev, inode: stats.ino });
@@ -122,10 +126,8 @@ function assertNoFollowSupport(): number {
 	return noFollow;
 }
 
-function unsafeWorkspacePathError(): WorkspaceBootstrapSecurityError {
-	return new WorkspaceBootstrapSecurityError(
-		"Cannot safely use workspace: the path or one of its parents is a symbolic link.",
-	);
+function unsafeWorkspacePathError(path: string, reason: string): WorkspaceBootstrapSecurityError {
+	return new WorkspaceBootstrapSecurityError(`Cannot safely use workspace: ${JSON.stringify(path)} ${reason}.`);
 }
 
 /** Read shared workspace instructions and preferences for each agent run. */
