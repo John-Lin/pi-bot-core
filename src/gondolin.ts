@@ -225,11 +225,11 @@ export class GondolinTurn implements Executor {
 	}
 
 	private async dispose(): Promise<void> {
-		this.lifetime.abort(new Error("Gondolin turn is closed"));
+		this.lifetime.abort(new Error("The workspace sandbox turn is closed."));
 		try {
 			await this.vm?.close();
 		} catch (cause) {
-			this.finishSlot?.(new Error("Gondolin VM cleanup failed; restart the bot before starting another VM", { cause }));
+			this.finishSlot?.(new Error("Workspace microVM cleanup failed; the bot must be restarted before starting another turn.", { cause }));
 			throw cause;
 		}
 		await this.starting?.catch(() => {});
@@ -263,7 +263,7 @@ export class GondolinTurn implements Executor {
 		try {
 			imagePath = resolveImageSelector(GONDOLIN_IMAGE).assetDir;
 		} catch (error) {
-			throw new SandboxConfigError(`Gondolin image ${GONDOLIN_IMAGE} is not available locally; run startup validation: ${String(error)}`);
+			throw new SandboxConfigError("The workspace microVM image is unavailable. Ask the bot operator to run startup validation.", { cause: error });
 		}
 		this.finishSlot = await this.acquire(this.lifetime.signal);
 		this.lifetime.signal.throwIfAborted();
@@ -317,7 +317,7 @@ async function readBounded(stream: Readable): Promise<Buffer> {
 	for await (const value of stream) {
 		const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
 		length += chunk.length;
-		if (length > MAX_BUFFER_BYTES) throw new OutputLimitError("Gondolin stream exceeded 10 MiB");
+		if (length > MAX_BUFFER_BYTES) throw new OutputLimitError("Workspace tool output exceeded 10 MiB.");
 		chunks.push(chunk);
 	}
 	return Buffer.concat(chunks, length);

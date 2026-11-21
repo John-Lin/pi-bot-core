@@ -41,7 +41,7 @@ test("denies requests that would place the credential on another destination, pr
 		const result = applyGondolinCredential(request, credential, placeholder);
 		if (!(result instanceof Response)) throw new Error("Expected credential misuse to be blocked locally");
 		expect(result.status).toBe(403);
-		expect(await result.text()).not.toContain(credential.value);
+		expect(await result.text()).toBe("The workspace credential is not allowed for this request.");
 	}
 });
 

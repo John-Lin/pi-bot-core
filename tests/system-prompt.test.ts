@@ -39,9 +39,10 @@ const baseInput = {
 };
 
 describe("buildBaseSystemPrompt", () => {
-	test("describes the per-turn Linux VM sandbox and its mounted files", () => {
+	test("describes the per-turn Linux microVM without naming the backend", () => {
 		const p = buildBaseSystemPrompt(baseInput);
-		expect(p).toContain("Workspace tools run in a per-turn Linux VM sandbox");
+		expect(p).toContain("Workspace tools run in a per-turn Linux microVM sandbox");
+		expect(p).not.toMatch(/gondolin|krun|qemu/i);
 		expect(p).toContain("public HTTP(S)");
 		expect(p).toContain("Private networks and loopback are blocked");
 		expect(p).not.toContain("no network access");
