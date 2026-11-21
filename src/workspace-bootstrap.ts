@@ -28,22 +28,19 @@ const BOOTSTRAP_FILES = [
 
 /** Ensure the workspace exists without traversing a persistent linked path component. */
 export function ensureWorkspacePathIsSafe(workspace: string): void {
+	ensureWorkspaceDirectoriesAreSafe([workspace]);
+}
+
+/** Check every destination before creating any part of a workspace layout. */
+export function ensureWorkspaceDirectoriesAreSafe(directories: readonly string[]): void {
 	assertNoFollowSupport();
-	const absolute = resolve(workspace);
-	const root = parse(absolute).root;
-	let current = root;
-	for (const part of absolute.slice(root.length).split(sep).filter(Boolean)) {
-		current = join(current, part);
-		try {
-			const stats = lstatSync(current);
-			if (stats.isSymbolicLink() || !stats.isDirectory()) throw unsafeWorkspacePathError();
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-			mkdirSync(absolute, { recursive: true });
-			break;
+	const missing = directories.filter((path) => inspectWorkspacePath(path, true) === undefined);
+	for (const path of missing) mkdirSync(resolve(path), { recursive: true });
+	for (const path of directories) {
+		if (inspectWorkspacePath(path, true) === undefined) {
+			throw unsafeWorkspacePathError(resolve(path), "no longer exists");
 		}
 	}
-	if (inspectWorkspacePath(workspace) === undefined) throw unsafeWorkspacePathError();
 }
 
 /** Seed shared workspace instructions and preferences without replacing existing files. */
@@ -66,7 +63,7 @@ interface PathIdentity {
 	inode: bigint;
 }
 
-function inspectWorkspacePath(workspace: string): PathIdentity[] | undefined {
+function inspectWorkspacePath(workspace: string, rejectUnsafe = false): PathIdentity[] | undefined {
 	const absolute = resolve(workspace);
 	const root = parse(absolute).root;
 	const identities: PathIdentity[] = [];
@@ -75,7 +72,12 @@ function inspectWorkspacePath(workspace: string): PathIdentity[] | undefined {
 		current = join(current, part);
 		try {
 			const stats = lstatSync(current, { bigint: true });
-			if (stats.isSymbolicLink() || !stats.isDirectory()) return undefined;
+			if (stats.isSymbolicLink() || !stats.isDirectory()) {
+				if (rejectUnsafe) {
+					throw unsafeWorkspacePathError(current, stats.isSymbolicLink() ? "is a symbolic link" : "is not a directory");
+				}
+				return undefined;
+			}
 			identities.push({ path: current, device: stats.dev, inode: stats.ino });
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -124,10 +126,8 @@ function assertNoFollowSupport(): number {
 	return noFollow;
 }
 
-function unsafeWorkspacePathError(): WorkspaceBootstrapSecurityError {
-	return new WorkspaceBootstrapSecurityError(
-		"Cannot safely use workspace: the path or one of its parents is a symbolic link.",
-	);
+function unsafeWorkspacePathError(path: string, reason: string): WorkspaceBootstrapSecurityError {
+	return new WorkspaceBootstrapSecurityError(`Cannot safely use workspace: ${JSON.stringify(path)} ${reason}.`);
 }
 
 /** Read shared workspace instructions and preferences for each agent run. */
@@ -144,7 +144,7 @@ export function readWorkspaceBootstrap(workspace: string, visibleWorkspace?: str
 			if (workspaceIdentity === undefined || !workspacePathIsUnchanged(workspaceIdentity)) {
 				return `### ${label}\n<${tag}>\n\n</${tag}>`;
 			}
-			// The host assembles this prompt even in Docker mode; read only the opened regular file.
+			// The host assembles the guest prompt; read only the opened regular file.
 			fd = openSync(path, constants.O_RDONLY | noFollow | (constants.O_NONBLOCK ?? 0));
 			const stats = fstatSync(fd);
 			if (stats.isFile() && workspacePathIsUnchanged(workspaceIdentity)) {

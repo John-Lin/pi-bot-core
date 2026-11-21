@@ -4,17 +4,14 @@ Shared runtime and building blocks for pi-mono based bots (e.g. `pi-discord-bot`
 
 Inspired by [pi-mono](https://github.com/badlogic/pi-mono); some modules were originally ported from `pi-mono/packages/mom` and remain MIT-licensed under the original copyright. See `LICENSE`.
 
-The `Executor` abstraction lets the same agent tools work on the host, in a Docker container, or in a turn-scoped Gondolin VM. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
+Workspace tools run in a turn-scoped Gondolin VM through the shared `Executor` interface. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
 
 ## Contents
 
 ### Sandbox / Executor (`pi-bot-core`, `pi-bot-core/sandbox`)
 
-- `Executor` interface
-- `HostExecutor` — runs commands locally via `sh -c`
-- `DockerExecutor` — runs commands inside a running container via `docker exec ... sh -c`
-- `createExecutor(config)` / `parseSandboxArg(arg)` / `validateSandbox(config)` for host and Docker
-- `pi-bot-core/gondolin` — `GondolinSandbox` opens a lazy, chat-scoped `Executor` for each agent turn
+- `Executor` — the interface used by the workspace tools
+- `pi-bot-core/gondolin` — `validateGondolinSandbox()` checks startup requirements, and `GondolinSandbox` opens one lazy, chat-scoped `Executor` per agent turn
 
 ### Agent tools (`pi-bot-core/tools`)
 
@@ -35,7 +32,7 @@ All tools are `AgentTool` instances from `@earendil-works/pi-agent-core` and dro
 
 - `pi-bot-core/agent-settings` — strict loading of shared bot agent tuning, with a separate model context-window override
 - `pi-bot-core/agent-extensions` — strict bot `mcp.json` loading plus the per-session Codemode, tool search, and MCP extensions (OAuth via Pi's credential store)
-- `pi-bot-core/workspace` — per-chat directory layout (`MEMORY.md`, `attachments/`, `scratch/`, `skills/`), skill loading, host↔container path translation
+- `pi-bot-core/workspace` — per-chat directory layout (`MEMORY.md`, `attachments/`, `scratch/`, `skills/`), skill loading, guest-visible skill paths
 - `pi-bot-core/workspace-bootstrap` — symlink-aware workspace validation plus seeding and bounded reading of shared `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, and `USER.md` prompt files
 - `pi-bot-core/message-log` — append-only `log.jsonl` with the multi-row edit/delete contract used by every bot
 - `pi-bot-core/events` — generic event-file watcher that fires immediate / one-shot / periodic JSON events into a dispatcher
@@ -52,35 +49,18 @@ Immediate events tolerate short outages: files last modified within five minutes
 
 ## Usage
 
-### Host mode
-
-```ts
-import { HostExecutor, createBotTools } from "pi-bot-core";
-
-const executor = new HostExecutor();
-const tools = createBotTools(executor);
-```
-
-### Docker sandbox mode
-
-```ts
-import { DockerExecutor, createBotTools } from "pi-bot-core";
-
-const executor = new DockerExecutor("pi-sandbox");
-const tools = createBotTools(executor);
-// all bash/read/write/edit now run inside the `pi-sandbox` container
-```
-
-### Gondolin sandbox mode
+### Gondolin sandbox
 
 ```ts
 import { createBotTools } from "pi-bot-core";
 import { GondolinSandbox, validateGondolinSandbox } from "pi-bot-core/gondolin";
 import { ensureChatDir } from "pi-bot-core/workspace";
 
-await validateGondolinSandbox(); // Once at startup; checks QEMU and prepares the image.
-const sandbox = new GondolinSandbox(2); // Share one instance across the bot.
-const turn = sandbox.turn(ensureChatDir(workspace, chatId));
+const sandboxOptions = { backend: "qemu" } as const; // Use "krun" to opt in.
+await validateGondolinSandbox(sandboxOptions); // Once at startup.
+const sandbox = new GondolinSandbox(2, sandboxOptions); // Share one instance across the bot.
+const paths = ensureChatDir(workspace, chatId); // Checks all directories before creating the layout.
+const turn = sandbox.turn(paths);
 try {
   const tools = createBotTools(turn);
   // Run the agent with these tools until it is idle.
@@ -89,20 +69,11 @@ try {
 }
 ```
 
-Gondolin requires QEMU on macOS or Linux. It uses the pinned `alpine-base:0.3.2` image, with public HTTP(S) available in every VM. Private addresses, generic TCP/UDP, and WebSocket upgrades are blocked. A guest can send chat-visible data to public destinations, so allow only trusted users or groups to invoke guest tools. The optional `credential` passed to `new GondolinSandbox(2, { credential })` exposes a placeholder in `credential.env` and substitutes `credential.value` only into `credential.header` on a POST to an exact HTTPS URL in `credential.urls`. Use a nonempty URL array without user info, queries, fragments, or wildcards. The scope is validated even if the value is absent or blank, which disables forwarding. The approved URL determines the upstream authority, and subsequent requests carrying the injected value are rejected. Keep the real value in the host process. Startup validation prepares the image with a two-minute deadline. The first tool call boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM. Set `PI_BOT_TEST_GONDOLIN_WEB=1` to also test public HTTPS against `example.com`.
+The chat ID must be a single directory name using only ASCII letters, digits, `-`, `_`, or `.`. It cannot be empty, `.` or `..`. `MEMORY.md` and `skills` are reserved at the workspace root, regardless of case.
 
-With `writableWorkspaceContent: true`, the current chat's attachments (including originals), chat skills, and shared skills also accept persistent writes. Guests can edit contents but cannot remove the mount directories, change their permissions, or create symbolic or hard links in them. Host code reads skills and downloads attachments outside the VM's filesystem. Only enable this for trusted chats: edits to the shared skills affect other chats. Set the same option on the Gondolin prompt configuration so the agent sees the actual permissions.
+Gondolin defaults to QEMU. Bots can pass `backend: "krun"` to select libkrun explicitly; there is no automatic fallback. Pass the same options to startup validation and the sandbox constructor so that the backend you validate is the one used for turns. Gondolin uses the pinned `alpine-base:0.3.2` image, with public HTTP(S) available in every VM. Private addresses, generic TCP/UDP, and WebSocket upgrades are blocked. A guest can send chat-visible data to public destinations, so allow only trusted users or groups to invoke guest tools. The optional `credential` passed to `new GondolinSandbox(2, { credential })` exposes a placeholder in `credential.env` and substitutes `credential.value` only into `credential.header` on a POST to an exact HTTPS URL in `credential.urls`. Use a nonempty URL array without user info, queries, fragments, or wildcards. The scope is validated even if the value is absent or blank, which disables forwarding. The approved URL determines the upstream authority, and subsequent requests carrying the injected value are rejected. Keep the real value in the host process. Startup validation checks the selected backend's prerequisites and prepares the image with a two-minute deadline. For krun, it also boots a short-lived offline VM to check the host hypervisor. The first workspace tool call in each turn boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM. Set `PI_BOT_TEST_GONDOLIN_WEB=1` to also test public HTTPS against `example.com`.
 
-### From a CLI flag
-
-```ts
-import { parseSandboxArg, validateSandbox, createExecutor, createBotTools } from "pi-bot-core";
-
-// e.g. --sandbox=host  or  --sandbox=docker:pi-sandbox
-const config = parseSandboxArg(process.env.SANDBOX ?? "host");
-await validateSandbox(config);   // throws SandboxConfigError if docker is missing / container stopped
-const tools = createBotTools(createExecutor(config));
-```
+With `writableWorkspaceContent: true`, the current chat's attachments (including originals), chat skills, and shared skills also accept persistent writes. Guests can edit contents but cannot remove the mount directories, change their permissions, or create symbolic or hard links in them. Host code reads skills and downloads attachments outside the VM's filesystem. Only enable this for trusted chats: edits to the shared skills affect other chats. Pass the same `writableWorkspaceContent` option directly to `buildBaseSystemPrompt()` so the agent sees the actual permissions. The prompt describes the Linux VM sandbox; pass `GONDOLIN_WORKSPACE` as `workspacePath`.
 
 ### Load bot agent settings
 
@@ -245,7 +216,7 @@ HTTP servers without an `Authorization` header (any capitalization) use the SDK'
 
 MCP connections never start a browser sign-in. Missing or revoked credentials are reported as `<server>: needs sign-in` through `notify`; complete the login on the host. Per the SDK, a session waiting for sign-in reconnects on a later turn once the stored credentials change; restarting the bot also picks them up. Sharing the store does not load personal servers, but it does share authority: every chat that can reach a configured server acts with the logged-in account, not per platform user. Keep tokens out of the bot's `mcp.json` so refreshes do not require editing it.
 
-MCP servers run in the bot process environment, outside any Docker workspace sandbox: stdio servers are host processes with the bot's privileges, and HTTP URLs are resolved from the bot process. Server log notifications are appended to `mcpLogPath`.
+MCP servers run in the bot process environment, outside the Gondolin VM: stdio servers are host processes with the bot's privileges, and HTTP URLs are resolved from the bot process. Server log notifications are appended to `mcpLogPath`.
 
 ### Shared progress (`pi-bot-core/progress`)
 
@@ -372,29 +343,29 @@ ensureWorkspaceBootstrap(workspace);
 
 // Every run: revalidate, then read fresh content for the system prompt.
 ensureWorkspacePathIsSafe(workspace);
-const workspaceBootstrap = readWorkspaceBootstrap(workspace, visibleWorkspacePath);
+const workspaceBootstrap = readWorkspaceBootstrap(workspace);
 ```
 
-This module is only available from the `pi-bot-core/workspace-bootstrap` subpath. It does not change `ensureChatDir` or other `pi-bot-core/workspace` behavior.
+This module is available from the `pi-bot-core/workspace-bootstrap` subpath. `ensureChatDir` validates its own directory layout before creating it; call `ensureWorkspacePathIsSafe` before other workspace storage operations.
 
 Caller contract:
 
 - `ensureWorkspacePathIsSafe(workspace)` throws `WorkspaceBootstrapSecurityError` when `fs.constants.O_NOFOLLOW` is unavailable (checked before any filesystem access) or when the workspace or any parent is a symbolic link or non-directory. Otherwise it creates missing directories. Call it before creating any workspace storage and again before each run.
 - `ensureWorkspaceBootstrap(workspace)` creates missing starter files at the workspace root with exclusive create, so existing files (including dangling links) are never overwritten. It does nothing if the workspace is missing or linked, and stops if the workspace path changes between files.
-- `readWorkspaceBootstrap(workspace, visibleWorkspace)` returns `### <visibleWorkspace>/<file>` headings with `<agents_md>`, `<soul_md>`, `<identity_md>`, and `<user_md>` sections, separated by blank lines. Content is trimmed. Missing, linked, or non-regular files, and a missing or changed workspace path, produce empty sections. `AGENTS.md`, `SOUL.md`, and `IDENTITY.md` are limited to 20,000 Unicode code points and `USER.md` to 4,000; longer content ends with `[truncated: read <visibleWorkspace>/<file> for the rest]`. It throws `WorkspaceBootstrapSecurityError` when `O_NOFOLLOW` is unavailable.
+- `readWorkspaceBootstrap(workspace)` returns host-managed headings with `<agents_md>`, `<soul_md>`, `<identity_md>`, and `<user_md>` sections, separated by blank lines. Content is trimmed. Missing, linked, or non-regular files, and a missing or changed workspace path, produce empty sections. `AGENTS.md`, `SOUL.md`, and `IDENTITY.md` are limited to 20,000 Unicode code points and `USER.md` to 4,000; longer content ends with `[host-managed file truncated]`. It throws `WorkspaceBootstrapSecurityError` when `O_NOFOLLOW` is unavailable.
 - Unexpected filesystem errors (for example `EACCES`) are thrown by all three functions.
 - `USER.md` lives at the workspace root and is shared by every chat using that workspace. Files are reread on every call, so edits apply to the next run.
-- Where the section goes in the system prompt, which visible path to show (for example `/workspace` in Docker mode), how errors are presented to users, and when these functions are called are decided by each bot.
+- Each bot decides where to place these sections in its prompt and how to report errors. Omit the optional visible path for Gondolin: these files are read by the host and are not mounted in the VM.
 
 Limitations: the checks compare each path component's device and inode before and after operations and open files with `O_NOFOLLOW`, but they are not atomic. A process that can modify the workspace or its parents can still race the checks. This reduces accidental or casual symlink escapes; it is not a filesystem sandbox.
 
 ### Pick tools individually
 
 ```ts
-import { HostExecutor, createBashTool, createReadTool } from "pi-bot-core";
+import { createBashTool, createReadTool } from "pi-bot-core";
 
-const executor = new HostExecutor();
-const tools = [createBashTool(executor), createReadTool(executor)];
+// Use the active Gondolin turn from the setup above.
+const tools = [createBashTool(turn), createReadTool(turn)];
 ```
 
 ### Add platform-specific tools
@@ -407,26 +378,37 @@ import {
   createScheduleTool,
 } from "pi-bot-core";
 
-const tools = [
-  ...createBotTools(executor),
-  createAttachTool().tool,                          // wire setUploader at run time
-  createChatHistoryTool({ logFilePath }),
-  createScheduleTool(scheduleConfig),               // bot supplies routing schema
-];
+// Use the active Gondolin turn. uploadAttachment is the bot's platform uploader.
+const attach = createAttachTool();
+attach.setUploader(async (path, { label, fileName }) => {
+  const bytes = await turn.readAttachment(path);
+  await uploadAttachment(bytes, { label, fileName });
+});
+
+try {
+  const tools = [
+    ...createBotTools(turn),
+    attach.tool,
+    createChatHistoryTool({ logFilePath }),
+    createScheduleTool(scheduleConfig),             // bot supplies routing schema
+  ];
+  // Run the agent with these tools until it is idle.
+} finally {
+  attach.setUploader(null);
+  await turn.close();
+}
 ```
 
 ## Sandbox: division of responsibilities
 
 What this package owns:
 
-- `Executor` interface + host/Docker implementations and the Gondolin turn lifecycle
-- `SandboxConfig` + parse/validate/create helpers
+- The `Executor` interface, Gondolin startup validation, and the VM lifecycle for each turn
 
 What each bot repo owns:
 
-- Wiring the CLI flag or environment variable to the chosen backend
-- Container lifecycle scripts (`docker.sh` / Makefile / Dockerfile)
-- Choosing the sandbox's scope, closing turns on shutdown, and supplying platform prompt details to `buildBaseSystemPrompt`
+- Validating Gondolin at startup, sharing a sandbox instance, and closing each turn on completion or cancellation
+- Wiring attachment uploads through `turn.readAttachment()` and supplying platform prompt details to `buildBaseSystemPrompt()`
 
 ## Runtime requirements
 
@@ -436,26 +418,12 @@ Tool parameter schemas use `@earendil-works/pi-schema` instead of a direct TypeB
 
 When supplying `createScheduleTool` parameters, use pi-schema builders (`obj`, `str`, `num`, `opt`, etc.); routing callback arguments are inferred with pi-schema's `Static`. Unlike the built-in schemas here, `obj(properties)` is closed by default; pass `{ open: true }` if your schema should accept extra fields.
 
-### Host mode
+Both VM backends use `qemu-img` for copy-on-write disks. Put it on the bot's `PATH` (Homebrew: `qemu`; Debian/Ubuntu: `qemu-utils`). Cold image downloads require `tar` with gzip support (`gzip` must also be on `PATH` for GNU tar).
 
-- Node/Bun with `sh` (POSIX) or `cmd` (Windows) on the host.
-
-### Docker mode
-
-- `docker` CLI available on the host `PATH`
-- A running container with at least `/bin/sh` (Alpine works; no `bash` needed)
-- Workspace mounted into the container, conventionally at `/workspace`
-  (`DockerExecutor.getWorkspacePath()` always returns `/workspace`)
-
-Example one-liner to create a throwaway Alpine container:
-
-```bash
-docker run -d --name pi-sandbox \
-  -v "$(pwd)/data:/workspace" \
-  alpine:latest tail -f /dev/null
-```
-
-`DockerExecutor` wraps `docker exec` and reuses `HostExecutor` for the actual child-process work.
+- **QEMU (default):** On macOS or Linux, put the emulator for the guest image architecture on `PATH`: `qemu-system-aarch64` for arm64 or `qemu-system-x86_64` for x64. The pinned image normally matches the host. On macOS, Gondolin uses Hypervisor.framework acceleration for same-architecture guests.
+- **[krun](https://github.com/earendil-works/gondolin/blob/v0.14.0/docs/backends.md) (experimental):** The QEMU system emulator is not needed. Install with optional dependencies enabled so Gondolin can use the packaged runner with bundled libkrun. The pinned image contains the krun kernel assets.
+  - **Apple Silicon macOS:** The packaged runner targets macOS 15 or later and uses Hypervisor.framework.
+  - **x64 Linux:** The packaged runner needs glibc 2.36 or later, `libcap-ng.so.0` and `libgcc_s.so.1` (Debian/Ubuntu: `libcap-ng0` and `libgcc-s1`), and read/write access to `/dev/kvm` for the bot user.
 
 ## Development
 
@@ -464,6 +432,8 @@ bun --no-env-file install --frozen-lockfile
 bun --no-env-file run typecheck
 bun test --no-env-file
 ```
+
+CI runs the real-VM tests on QEMU only. Before running real-VM tests locally, prepare the pinned image by calling `validateGondolinSandbox()` for QEMU or `validateGondolinSandbox({ backend: "krun" })` for krun. On a suitable host, opt in to the krun smoke test with `PI_BOT_TEST_GONDOLIN_KRUN=1 bun test tests/gondolin.test.ts -t 'configured krun turn'`.
 
 `typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI, as well as the event lifecycle and shared system-prompt tests, the Codemode/MCP tests, the shared progress and SDK progress-integration tests, and their fixtures.
 

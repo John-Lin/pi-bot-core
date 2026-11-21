@@ -1,8 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
+import { ensureWorkspaceDirectoriesAreSafe, WorkspaceBootstrapSecurityError } from "./workspace-bootstrap.js";
 
-const PER_CHAT_SUBDIRS = ["attachments", "scratch", "skills"] as const;
+const MEMORY_FILE = "MEMORY.md";
+const SKILLS_DIR = "skills";
 
 export interface ChatPaths {
 	workspace: string;
@@ -17,29 +19,33 @@ export interface ChatPaths {
 /**
  * Ensure the workspace root and per-chat directory skeleton exist.
  * Creates `<workspace>/{MEMORY.md, skills/}` and
- * `<workspace>/<chatId>/{MEMORY.md, attachments/, scratch/, skills/}`.
+ * `<workspace>/<chatId>/{MEMORY.md, attachments/, scratch/, skills/}` after
+ * checking all directory paths for symbolic links and non-directory components.
  */
 export function ensureChatDir(workspace: string, chatId: number | string): ChatPaths {
-	mkdirSync(workspace, { recursive: true });
-	mkdirSync(join(workspace, "skills"), { recursive: true });
-	touchFile(join(workspace, "MEMORY.md"));
-	touchFile(join(workspace, "SYSTEM.md"));
-
-	const chatDir = join(workspace, String(chatId));
-	for (const sub of PER_CHAT_SUBDIRS) {
-		mkdirSync(join(chatDir, sub), { recursive: true });
+	if (workspace === "") throw new WorkspaceBootstrapSecurityError("Workspace path must not be empty.");
+	const name = String(chatId);
+	// Use ASCII so filesystem-specific Unicode aliases cannot collide with shared paths.
+	if (!name || name === "." || name === ".." || /[^A-Za-z0-9._-]/.test(name)) {
+		throw new WorkspaceBootstrapSecurityError("Chat ID must be a single directory name using only ASCII letters, digits, hyphens, underscores, or periods.");
 	}
-	touchFile(join(chatDir, "MEMORY.md"));
-
-	return {
+	if ([MEMORY_FILE, SKILLS_DIR].some((reserved) => reserved.toLowerCase() === name.toLowerCase())) {
+		throw new WorkspaceBootstrapSecurityError(`Chat ID ${JSON.stringify(name)} conflicts with a reserved workspace name.`);
+	}
+	const chatDir = join(workspace, name);
+	const paths: ChatPaths = {
 		workspace,
 		chatDir,
-		memoryFile: join(chatDir, "MEMORY.md"),
+		memoryFile: join(chatDir, MEMORY_FILE),
 		contextFile: join(chatDir, "context.jsonl"),
-		skillsDir: join(chatDir, "skills"),
+		skillsDir: join(chatDir, SKILLS_DIR),
 		scratchDir: join(chatDir, "scratch"),
 		attachmentsDir: join(chatDir, "attachments"),
 	};
+	ensureWorkspaceDirectoriesAreSafe([join(workspace, SKILLS_DIR), paths.skillsDir, paths.scratchDir, paths.attachmentsDir]);
+	touchFile(join(workspace, MEMORY_FILE));
+	touchFile(paths.memoryFile);
+	return paths;
 }
 
 function touchFile(path: string): void {
@@ -59,7 +65,7 @@ function touchFile(path: string): void {
  */
 export function readMemory(paths: ChatPaths): string {
 	const parts: string[] = [];
-	const globalMem = tryRead(join(paths.workspace, "MEMORY.md"));
+	const globalMem = tryRead(join(paths.workspace, MEMORY_FILE));
 	if (globalMem) parts.push(`<global_memory>\n${globalMem}\n</global_memory>`);
 	const chatMem = tryRead(paths.memoryFile);
 	if (chatMem) parts.push(`<chat_memory>\n${chatMem}\n</chat_memory>`);
@@ -72,31 +78,15 @@ function tryRead(path: string): string {
 }
 
 /**
- * Read the workspace-level `SYSTEM.md` (env mods log the agent maintains itself).
- *
- * Mirrors `readMemory`'s XML fence so user/LLM-authored Markdown headings inside SYSTEM.md
- * cannot collide with surrounding system-prompt heading hierarchy. Only the global file is
- * surfaced — environment state is shared across chats whether the bot runs on the host or
- * inside a per-bot docker container, so a per-chat layer would not match reality.
- */
-export function readSystemConfig(paths: ChatPaths): string {
-	const body = tryRead(join(paths.workspace, "SYSTEM.md"));
-	if (!body) return "(no system state recorded yet)";
-	return `<system_config>\n${body}\n</system_config>`;
-}
-
-/**
  * Load skills from both the global workspace and this chat's skill dir. Per-chat overrides global on name collision.
  *
- * When `containerWorkspace` differs from `paths.workspace`, skill paths are rewritten from the host
- * view to the container view so that the LLM (which invokes skills via bash inside the container)
- * sees paths that actually exist in its filesystem. This mirrors pi-mom's `loadMomSkills`.
+ * When given a guest workspace root, rewrite skill paths so workspace tools can open them in the VM.
  */
-export function loadChatSkills(paths: ChatPaths, containerWorkspace?: string): Skill[] {
+export function loadChatSkills(paths: ChatPaths, guestWorkspace?: string): Skill[] {
 	const map = new Map<string, Skill>();
 	const translate = (hostPath: string): string =>
-		containerWorkspace && containerWorkspace !== paths.workspace && hostPath.startsWith(paths.workspace)
-			? containerWorkspace + hostPath.slice(paths.workspace.length)
+		guestWorkspace && guestWorkspace !== paths.workspace && hostPath.startsWith(paths.workspace)
+			? guestWorkspace + hostPath.slice(paths.workspace.length)
 			: hostPath;
 
 	const apply = (s: Skill): Skill => ({
@@ -105,7 +95,7 @@ export function loadChatSkills(paths: ChatPaths, containerWorkspace?: string): S
 		baseDir: translate(s.baseDir),
 	});
 
-	const globalSkillsDir = join(paths.workspace, "skills");
+	const globalSkillsDir = join(paths.workspace, SKILLS_DIR);
 	for (const s of loadSkillsFromDir({ dir: globalSkillsDir, source: "workspace" }).skills) {
 		map.set(s.name, apply(s));
 	}

@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HostExecutor, type ExecOptions } from "../src/sandbox.js";
+import { type ExecOptions } from "../src/sandbox.js";
+import { HostExecutor } from "./helpers/host-executor.js";
 import { createBashTool } from "../src/tools/bash.js";
 import { createReadTool } from "../src/tools/read.js";
 

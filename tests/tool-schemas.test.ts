@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import packageJson from "../package.json";
-import { HostExecutor } from "../src/sandbox.js";
+import { HostExecutor } from "./helpers/host-executor.js";
 import {
 	createAttachTool,
 	createBashTool,
