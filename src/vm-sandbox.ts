@@ -5,7 +5,7 @@ import { basename, join, posix } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM, type ResolvedImage } from "@earendil-works/gondolin";
+import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM, type ResolvedImage, type VMOptions } from "@earendil-works/gondolin";
 import { createSandboxWebSecretHooks, normalizeSandboxWebSecrets, type ActiveSandboxWebSecret, type SandboxWebSecret } from "./sandbox-web-secrets.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
@@ -53,6 +53,10 @@ function resolveBackend(backend: unknown): VMSandboxBackend {
 	throw new SandboxConfigError('Invalid VM sandbox backend; expected "qemu" or "krun"');
 }
 
+function vmResources(backend: VMSandboxBackend): Pick<VMOptions, "cpus" | "memory" | "rootfs"> {
+	return backend === "krun" ? { cpus: 2, memory: "2560M", rootfs: { size: "8G" } } : {};
+}
+
 async function requireCommand(command: string): Promise<void> {
 	try {
 		await runFile(command, ["--version"], { timeout: 5_000 });
@@ -91,6 +95,7 @@ export async function validateVMSandbox(options: Pick<VMSandboxOptions, "backend
 	// Only a boot can confirm that the krun runner can use the host hypervisor.
 	try {
 		const vm = new VM({
+			...vmResources(backend),
 			sandbox: { vmm: backend, imagePath: image.assetDir, netEnabled: false },
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 		});
@@ -284,6 +289,7 @@ export class VMSandboxTurn implements Executor {
 			})
 			: new ReadonlyProvider(new RealFSProvider(path));
 		this.vm = new VM({
+			...vmResources(this.backend),
 			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks: secretHooks?.httpHooks, allowWebSockets: false },
 			env: secretHooks?.env,
 			startTimeoutMs: VM_START_TIMEOUT_MS,
