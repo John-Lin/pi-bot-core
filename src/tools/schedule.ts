@@ -1,5 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { mkdirSync, writeFileSync } from "fs";
+import { Cron } from "croner";
+import { randomUUID } from "crypto";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { Schema, Static } from "@earendil-works/pi-schema";
 
@@ -54,6 +56,13 @@ export function buildEventPayload(
 		}
 		if (args.at) {
 			throw new Error("schedule_event: 'at' is only for type='one-shot'");
+		}
+		try {
+			const cron = new Cron(args.schedule, { timezone: args.timezone });
+			if (!cron.nextRun(new Date(now))) throw new Error("No future occurrence");
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			throw new Error(`schedule_event: invalid 'schedule' or 'timezone': ${reason}`);
 		}
 	} else {
 		// immediate
@@ -129,7 +138,15 @@ export function createScheduleTool<TParams extends Schema>(
 
 			mkdirSync(eventsDir, { recursive: true });
 			const fullPath = join(eventsDir, filename);
-			writeFileSync(fullPath, JSON.stringify(json, null, 2), { encoding: "utf-8" });
+			// The watcher only reads .json files. Publish after the payload is complete.
+			const tempPath = `${fullPath}.${randomUUID()}.tmp`;
+			try {
+				writeFileSync(tempPath, JSON.stringify(json, null, 2), { encoding: "utf-8", flag: "wx" });
+				renameSync(tempPath, fullPath);
+			} catch (error) {
+				rmSync(tempPath, { force: true });
+				throw error;
+			}
 
 			const summary =
 				common.type === "one-shot"

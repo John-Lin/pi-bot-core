@@ -90,6 +90,21 @@ describe("buildEventPayload", () => {
 		});
 	});
 
+	for (const [schedule, timezone] of [
+		["not a cron expression", "Asia/Taipei"],
+		["0 9 * * *", "Mars/Olympus"],
+		["0 9 31 2 *", "Asia/Taipei"],
+	] as const) {
+		test(`periodic: rejects a schedule with no valid next run (${schedule}, ${timezone})`, () => {
+			expect(() =>
+				buildEventPayload(
+					{ label: "x", type: "periodic", text: "hi", schedule, timezone, routing: { chatId: 1 } },
+					NOW,
+				),
+			).toThrow(/invalid 'schedule' or 'timezone'/);
+		});
+	}
+
 	test("periodic: missing schedule rejected", () => {
 		expect(() =>
 			buildEventPayload(

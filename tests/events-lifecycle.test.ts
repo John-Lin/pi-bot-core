@@ -148,6 +148,18 @@ function expectNoSchedules(): void {
 }
 
 describe("EventsWatcher lifecycle ownership", () => {
+	test("keeps a one-shot scheduled beyond the native timer limit", async () => {
+		const at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+		const filePath = writeEvent("future.json", { type: "one-shot", at });
+		watcher.start();
+		await settleFiles();
+		await Bun.sleep(30);
+
+		expectNoDispatch();
+		expect(existsSync(filePath)).toBe(true);
+		expect(warnings).toEqual([]);
+	});
+
 	test("start retries failed directory preparation without an intervening stop", async () => {
 		rmSync(tempDir, { recursive: true });
 		writeFileSync(tempDir, "not a directory");
