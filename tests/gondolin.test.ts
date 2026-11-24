@@ -114,9 +114,14 @@ test.each(["", "libkrun", null])("rejects an invalid backend from deployment con
 	await expect(validateGondolinSandbox({ backend })).rejects.toThrow(SandboxConfigError);
 });
 
-webTest("allows public HTTPS by default while denying private HTTP destinations", async () => {
+const workspaceSecrets = {
+	GEMINI_API_KEY: { value: "fixture-gemini-not-a-real-key", hosts: ["generativelanguage.googleapis.com"], header: "x-goog-api-key" },
+	GH_TOKEN: { value: "fixture-github-not-a-real-pat", hosts: ["api.github.com"], header: "authorization" },
+};
+
+webTest("allows public HTTPS and denies private destinations and off-host credentials", async () => {
 	const command = "curl -fsS --max-time 8 https://example.com/";
-	const web = openTurn(new GondolinSandbox(1));
+	const web = openTurn(new GondolinSandbox(1, { secrets: workspaceSecrets }));
 	const result = await web.exec(command, { timeout: 12 });
 	expect(result.code, result.stderr).toBe(0);
 	expect(result.stdout).toContain("Example Domain");
@@ -125,19 +130,56 @@ webTest("allows public HTTPS by default while denying private HTTP destinations"
 	const loopback = await web.exec("curl -sS --max-time 8 --connect-to localhost:80:192.168.127.1:80 http://localhost/", { timeout: 12 });
 	expect(loopback.code, loopback.stderr).toBe(0);
 	expect(loopback.stdout).toContain("403 Forbidden: blocked by policy");
-}, 30_000);
+
+	for (const header of ["x-goog-api-key: $GEMINI_API_KEY", "Authorization: token $GH_TOKEN"]) {
+		const misuse = await web.exec(`curl -sS --max-time 8 -w '|%{http_code}' -H "${header}" https://example.com/`, { timeout: 12 });
+		expect(misuse).toEqual({ stdout: "The workspace credential is not allowed for this request.|403", stderr: "", code: 0 });
+	}
+}, 45_000);
 
 test.each([
-	{ urls: [], header: "x-test-api-key" },
-	{ urls: ["https://api.example.com/allowed", "http://api.example.com/not-tls"], header: "x-test-api-key" },
-	{ urls: ["https://user:pass@api.example.com/unsafe"], header: "x-test-api-key" },
-	{ urls: ["https://api.example.com/unsafe#fragment"], header: "x-test-api-key" },
-	{ urls: ["https://api.example.com/unsafe?token=fixture"], header: "x-test-api-key" },
-	{ urls: ["https://api.example.com/allowed"], header: "Connection" },
-])("rejects invalid credential policy before starting a turn (%j)", ({ urls, header }) => {
-	expect(() => new GondolinSandbox(1, { credential: { env: "TEST_API_KEY", value: "test-fixture-key", urls, header } }))
-		.toThrow("Invalid Gondolin web credential");
+	{ header: "Connection" },
+	{ header: "proxy-authorization" },
+	{ hosts: [] },
+	{ hosts: ["*.example.com"] },
+	{ hosts: ["api.example.com:8443"] },
+	{ hosts: ["api.example.com/path"] },
+	{ value: "fixture\r\ninvalid" },
+	{ request: { method: "POST", urls: ["https://api.example.com/unsupported"] } },
+])("rejects invalid secret policy before starting a turn (%j)", (scope) => {
+	expect(() => new GondolinSandbox(1, { secrets: { TEST_API_KEY: { hosts: ["api.example.com"], header: "x-test-api-key", ...scope } } }))
+		.toThrow("Invalid Gondolin web secret");
 });
+
+test("rejects the old single-credential option instead of silently disabling it", () => {
+	// @ts-expect-error Simulate a caller still passing the removed option at runtime.
+	expect(() => new GondolinSandbox(1, { credential: {} })).toThrow("use secrets instead of credential");
+});
+
+vmTest("injects only configured secret placeholders and regenerates them per turn", async () => {
+	const sandbox = new GondolinSandbox(1, { secrets: {
+		...workspaceSecrets,
+		UNSET_SECRET: { value: " \t", hosts: ["api.example.com"], header: "x-api-key" },
+	} });
+	const readPlaceholders = async (turn: GondolinTurn) => {
+		const result = await turn.exec('test -z "${UNSET_SECRET+x}" && printf "%s\\n%s\\n" "$GEMINI_API_KEY" "$GH_TOKEN"');
+		expect(result.code, result.stderr).toBe(0);
+		const placeholders = result.stdout.trim().split("\n");
+		expect(placeholders).toHaveLength(2);
+		expect(new Set(placeholders).size).toBe(2);
+		for (const placeholder of placeholders) {
+			expect(placeholder).not.toBe("");
+			for (const { value } of Object.values(workspaceSecrets)) expect(placeholder).not.toContain(value);
+		}
+		return placeholders;
+	};
+	const first = openTurn(sandbox);
+	const original = await readPlaceholders(first);
+	expect(await readPlaceholders(first)).toEqual(original);
+	await first.close();
+	const next = await readPlaceholders(openTurn(sandbox));
+	expect(next.every((placeholder) => !original.includes(placeholder))).toBe(true);
+}, 30_000);
 
 vmTest("reuses the guest per turn, persists only projected data, and does not expose another chat", async () => {
 	const otherChat = ensureChatDir(workspace, "43");

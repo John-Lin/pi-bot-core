@@ -6,10 +6,12 @@ import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM, type ResolvedImage } from "@earendil-works/gondolin";
-import { applyGondolinCredential, normalizeGondolinCredential, type ActiveGondolinCredential, type GondolinWebCredential } from "./gondolin-credential.js";
+import { createGondolinSecretHooks, normalizeGondolinSecrets, type ActiveGondolinSecret, type GondolinWebSecret } from "./gondolin-credential.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
 import type { ChatPaths } from "./workspace.js";
+
+export type { GondolinWebSecret } from "./gondolin-credential.js";
 
 export const GONDOLIN_IMAGE = "alpine-base:0.3.2";
 export const GONDOLIN_WORKSPACE = "/workspace";
@@ -39,8 +41,8 @@ const DEFAULT_BACKEND: GondolinBackend = "qemu";
 export interface GondolinSandboxOptions {
 	/** VM backend. Defaults to QEMU; krun must be selected explicitly. */
 	backend?: GondolinBackend;
-	/** Expose a placeholder for a host credential scoped to exact HTTPS POST URLs and one header. */
-	credential?: GondolinWebCredential;
+	/** Host credentials keyed by guest environment variable name. */
+	secrets?: Readonly<Record<string, GondolinWebSecret>>;
 	/** Allow guest writes to chat attachments, chat skills, and shared skills. */
 	writableWorkspaceContent?: boolean;
 }
@@ -107,7 +109,7 @@ export class GondolinSandbox {
 	private active = 0;
 	private failure?: Error;
 	private readonly waiters = new Set<() => void>();
-	private readonly credential?: ActiveGondolinCredential;
+	private readonly secrets: readonly ActiveGondolinSecret[];
 	private readonly backend: GondolinBackend;
 
 	constructor(
@@ -118,7 +120,8 @@ export class GondolinSandbox {
 			throw new Error("Gondolin needs a positive VM concurrency limit");
 		}
 		this.backend = resolveBackend(options.backend);
-		this.credential = options.credential && normalizeGondolinCredential(options.credential);
+		if (Object.hasOwn(options, "credential")) throw new SandboxConfigError("Invalid Gondolin option: use secrets instead of credential");
+		this.secrets = normalizeGondolinSecrets(options.secrets);
 	}
 
 	turn(paths: ChatPaths): GondolinTurn {
@@ -127,7 +130,7 @@ export class GondolinSandbox {
 		}
 		const memory = lstatSync(paths.memoryFile);
 		if (!memory.isFile() || memory.nlink !== 1) throw new Error("Gondolin MEMORY.md must be an unlinked regular file");
-		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.credential, this.options.writableWorkspaceContent, this.backend);
+		return new GondolinTurn(paths, (signal) => this.acquire(signal), this.secrets, this.options.writableWorkspaceContent, this.backend);
 	}
 
 	private async acquire(signal: AbortSignal): Promise<FinishSlot> {
@@ -167,7 +170,7 @@ export class GondolinTurn implements Executor {
 	constructor(
 		private readonly paths: ChatPaths,
 		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
-		private readonly credential?: ActiveGondolinCredential,
+		private readonly secrets: readonly ActiveGondolinSecret[] = [],
 		private readonly writableWorkspaceContent = false,
 		private readonly backend: GondolinBackend = DEFAULT_BACKEND,
 	) {
@@ -268,11 +271,7 @@ export class GondolinTurn implements Executor {
 		this.finishSlot = await this.acquire(this.lifetime.signal);
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
-		const credential = this.credential;
-		const placeholder = credential && randomBytes(24).toString("hex");
-		const httpHooks = credential && placeholder ? {
-			onRequest: (request: Request) => applyGondolinCredential(request, credential, placeholder),
-		} : undefined;
+		const secretHooks = createGondolinSecretHooks(this.secrets);
 		const contentMount = (path: string) => this.writableWorkspaceContent
 			? new SandboxVfsProvider(new WorkspaceContentProvider(path), {
 				before: ({ op, path, oldPath, newPath }) => {
@@ -285,8 +284,8 @@ export class GondolinTurn implements Executor {
 			})
 			: new ReadonlyProvider(new RealFSProvider(path));
 		this.vm = new VM({
-			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks, allowWebSockets: false },
-			env: credential && placeholder ? { [credential.env]: placeholder } : undefined,
+			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks: secretHooks?.httpHooks, allowWebSockets: false },
+			env: secretHooks?.env,
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 			vfs: {
 				mounts: {

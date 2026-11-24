@@ -25,6 +25,7 @@
     "tests/events-lifecycle.test.ts",
     "tests/system-prompt.test.ts",
     "tests/gondolin.test.ts",
+    "tests/gondolin-credential.test.ts",
     "tests/agent-extensions.test.ts",
     "tests/progress.test.ts",
     "tests/progress-sdk.test.ts",

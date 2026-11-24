@@ -71,9 +71,36 @@ try {
 
 The chat ID must be a single directory name using only ASCII letters, digits, `-`, `_`, or `.`. It cannot be empty, `.` or `..`. `MEMORY.md` and `skills` are reserved at the workspace root, regardless of case.
 
-Gondolin defaults to QEMU. Bots can pass `backend: "krun"` to select libkrun explicitly; there is no automatic fallback. Pass the same options to startup validation and the sandbox constructor so that the backend you validate is the one used for turns. Gondolin uses the pinned `alpine-base:0.3.2` image, with public HTTP(S) available in every VM. Private addresses, generic TCP/UDP, and WebSocket upgrades are blocked. A guest can send chat-visible data to public destinations, so allow only trusted users or groups to invoke guest tools. The optional `credential` passed to `new GondolinSandbox(2, { credential })` exposes a placeholder in `credential.env` and substitutes `credential.value` only into `credential.header` on a POST to an exact HTTPS URL in `credential.urls`. Use a nonempty URL array without user info, queries, fragments, or wildcards. The scope is validated even if the value is absent or blank, which disables forwarding. The approved URL determines the upstream authority, and subsequent requests carrying the injected value are rejected. Keep the real value in the host process. Startup validation checks the selected backend's prerequisites and prepares the image with a two-minute deadline. For krun, it also boots a short-lived offline VM to check the host hypervisor. The first workspace tool call in each turn boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM. Set `PI_BOT_TEST_GONDOLIN_WEB=1` to also test public HTTPS against `example.com`.
+Gondolin defaults to QEMU. Bots can pass `backend: "krun"` to select libkrun explicitly; there is no automatic fallback. Pass the same options to startup validation and the sandbox constructor so that the backend you validate is the one used for turns. Gondolin uses the pinned `alpine-base:0.3.2` image, with public HTTP(S) available in every VM. Private addresses, generic TCP/UDP, and WebSocket upgrades are blocked. A guest can send chat-visible data to public destinations, so allow only trusted users or groups to invoke guest tools. Startup validation checks the selected backend's prerequisites and prepares the image with a two-minute deadline. For krun, it also boots a short-lived offline VM to check the host hypervisor. The first workspace tool call in each turn boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM. Set `PI_BOT_TEST_GONDOLIN_WEB=1` to also test public HTTPS against `example.com`.
 
 With `writableWorkspaceContent: true`, the current chat's attachments (including originals), chat skills, and shared skills also accept persistent writes. Guests can edit contents but cannot remove the mount directories, change their permissions, or create symbolic or hard links in them. Host code reads skills and downloads attachments outside the VM's filesystem. Only enable this for trusted chats: edits to the shared skills affect other chats. Pass the same `writableWorkspaceContent` option directly to `buildBaseSystemPrompt()` so the agent sees the actual permissions. The prompt describes the Linux VM sandbox; pass `GONDOLIN_WORKSPACE` as `workspacePath`.
+
+#### Workspace web secrets
+
+Pass `secrets` on `GondolinSandboxOptions`, keyed by guest environment variable name. The caller selects the host values; the sandbox does not read or forward the entire host environment.
+
+```ts
+const sandbox = new GondolinSandbox(2, {
+  secrets: {
+    GEMINI_API_KEY: {
+      value: process.env.GEMINI_API_KEY,
+      hosts: ["generativelanguage.googleapis.com"],
+      header: "x-goog-api-key",
+    },
+    GH_TOKEN: {
+      value: process.env.BOT_GITHUB_PAT,
+      hosts: ["api.github.com", "github.com"],
+      header: "authorization",
+    },
+  },
+});
+```
+
+Gondolin generates a fresh placeholder for each enabled secret in each turn's VM. The VM receives only the placeholders, while the Gondolin host proxy substitutes the value in the declared request header. An application header uses the whole placeholder as its value; `Authorization` supports `Bearer`, GitHub CLI's `token` scheme, and a Basic Auth password for HTTPS Git. Keep the PAT in its raw form on the host, without an auth scheme prefix. Remove `github.com` if only API access is required.
+
+Use exact hostnames, not wildcards or ports. A secret can be used on **any path or method** on its approved HTTPS hosts, on the default HTTPS port. The gateway checks the request authority, rejects already expanded secret values on redirected hops, and never substitutes keys into the query string or request body. Credential scope does not restrict unrelated public HTTP(S). An absent or blank value disables that secret, but its policy must still be valid.
+
+Every chat using a sandbox with these secrets can exercise their authority; this is not per-chat authorization. Use a least-privilege credential, such as a fine-grained PAT limited to the intended repository. The old single `credential` option is not supported; callers must migrate to `secrets` and explicitly select the host scope before upgrading.
 
 ### Load bot agent settings
 
