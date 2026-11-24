@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, s
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VM } from "@earendil-works/gondolin";
-import { GondolinSandbox, validateGondolinSandbox, type GondolinTurn } from "../src/gondolin.js";
+import { VMSandbox, validateVMSandbox, type VMSandboxTurn } from "pi-bot-core/vm-sandbox";
 import { SandboxConfigError } from "../src/sandbox.js";
 import { createBashTool } from "../src/tools/bash.js";
 import { createReadTool } from "../src/tools/read.js";
@@ -11,10 +11,10 @@ import { ensureChatDir, loadChatSkills, type ChatPaths } from "../src/workspace.
 
 let workspace: string;
 let chat: ChatPaths;
-let turns: GondolinTurn[];
+let turns: VMSandboxTurn[];
 
 beforeEach(() => {
-	workspace = mkdtempSync(join(realpathSync(tmpdir()), "pi-bot-gondolin-"));
+	workspace = mkdtempSync(join(realpathSync(tmpdir()), "pi-bot-vm-sandbox-"));
 	chat = ensureChatDir(workspace, "42");
 	turns = [];
 });
@@ -24,26 +24,26 @@ afterEach(async () => {
 	rmSync(workspace, { force: true, recursive: true });
 });
 
-function openTurn(sandbox: GondolinSandbox, paths = chat): GondolinTurn {
+function openTurn(sandbox: VMSandbox, paths = chat): VMSandboxTurn {
 	const turn = sandbox.turn(paths);
 	turns.push(turn);
 	return turn;
 }
 
-const vmTest = process.env.PI_BOT_TEST_GONDOLIN === "1" ? test : test.skip;
-const webTest = process.env.PI_BOT_TEST_GONDOLIN_WEB === "1" ? test : test.skip;
-const krunTest = process.env.PI_BOT_TEST_GONDOLIN_KRUN === "1" ? test : test.skip;
+const vmTest = process.env.PI_BOT_TEST_VM_SANDBOX === "1" ? test : test.skip;
+const webTest = process.env.PI_BOT_TEST_VM_SANDBOX_WEB === "1" ? test : test.skip;
+const krunTest = process.env.PI_BOT_TEST_VM_SANDBOX_KRUN === "1" ? test : test.skip;
 
 function runWithVmCommands(commands: string[], script: string, env: Record<string, string>) {
 	const bin = join(workspace, "bin");
 	mkdirSync(bin);
 	for (const command of commands) {
 		const path = Bun.which(command);
-		if (!path) throw new Error(`Gondolin VM tests require ${command}`);
+		if (!path) throw new Error(`VM sandbox tests require ${command}`);
 		symlinkSync(path, join(bin, command));
 	}
 	return Bun.spawnSync([process.execPath, "--no-env-file", "-e", `
-		import { GONDOLIN_IMAGE, GondolinSandbox, GondolinTurn, validateGondolinSandbox } from ${JSON.stringify(import.meta.resolve("../src/gondolin.js"))};
+		import { VM_SANDBOX_IMAGE, VMSandbox, VMSandboxTurn, validateVMSandbox } from ${JSON.stringify(import.meta.resolve("pi-bot-core/vm-sandbox"))};
 		${script}
 	`], { env: { ...process.env, ...env, PATH: bin }, timeout: 30_000 });
 }
@@ -51,11 +51,11 @@ function runWithVmCommands(commands: string[], script: string, env: Record<strin
 function expectSandboxToRun(commands: string[], config: object | undefined, env: Record<string, string>): void {
 	const result = runWithVmCommands(commands, `
 		const config = ${JSON.stringify(config)};
-		await validateGondolinSandbox(config);
+		await validateVMSandbox(config);
 		const paths = ${JSON.stringify(chat)};
 		const turn = config === undefined
-			? new GondolinTurn(paths, async () => () => {})
-			: new GondolinSandbox(1, config).turn(paths);
+			? new VMSandboxTurn(paths, async () => () => {})
+			: new VMSandbox(1, config).turn(paths);
 		try {
 			process.stdout.write(JSON.stringify(await turn.exec("uname -s", { timeout: 20 })));
 		} finally {
@@ -96,8 +96,8 @@ vmTest("startup checks the QEMU emulator for the cached guest architecture", () 
 	const result = runWithVmCommands(["qemu-img", nativeEmulator], `
 		import { importImageFromDirectory, setImageRef } from "@earendil-works/gondolin";
 		const { buildId, arch } = importImageFromDirectory(${JSON.stringify(image)});
-		setImageRef(GONDOLIN_IMAGE, buildId, arch);
-		await validateGondolinSandbox();
+		setImageRef(VM_SANDBOX_IMAGE, buildId, arch);
+		await validateVMSandbox();
 	`, { GONDOLIN_IMAGE_STORE: join(workspace, "image-store") });
 	expect(result.exitCode, result.stderr.toString()).toBe(1);
 	expect(result.stderr.toString()).toContain(`qemu-system-${guestArch} is not usable`);
@@ -109,9 +109,9 @@ krunTest("starts a configured krun turn without a QEMU system emulator", () => {
 
 test.each(["", "libkrun", null])("rejects an invalid backend from deployment config (%j)", async (backend) => {
 	// @ts-expect-error Simulate config read at runtime without TypeScript validation.
-	expect(() => new GondolinSandbox(1, { backend })).toThrow(SandboxConfigError);
+	expect(() => new VMSandbox(1, { backend })).toThrow(SandboxConfigError);
 	// @ts-expect-error Startup validation must reject the same invalid config.
-	await expect(validateGondolinSandbox({ backend })).rejects.toThrow(SandboxConfigError);
+	await expect(validateVMSandbox({ backend })).rejects.toThrow(SandboxConfigError);
 });
 
 const workspaceSecrets = {
@@ -121,7 +121,7 @@ const workspaceSecrets = {
 
 webTest("allows public HTTPS and denies private destinations and off-host credentials", async () => {
 	const command = "curl -fsS --max-time 8 https://example.com/";
-	const web = openTurn(new GondolinSandbox(1, { secrets: workspaceSecrets }));
+	const web = openTurn(new VMSandbox(1, { secrets: workspaceSecrets }));
 	const result = await web.exec(command, { timeout: 12 });
 	expect(result.code, result.stderr).toBe(0);
 	expect(result.stdout).toContain("Example Domain");
@@ -146,21 +146,21 @@ test.each([
 	{ value: "fixture\r\ninvalid" },
 	{ request: { method: "POST", urls: ["https://api.example.com/unsupported"] } },
 ])("rejects invalid secret policy before starting a turn (%j)", (scope) => {
-	expect(() => new GondolinSandbox(1, { secrets: { TEST_API_KEY: { hosts: ["api.example.com"], ...scope } } }))
-		.toThrow("Invalid Gondolin web secret");
+	expect(() => new VMSandbox(1, { secrets: { TEST_API_KEY: { hosts: ["api.example.com"], ...scope } } }))
+		.toThrow("Invalid sandbox web secret");
 });
 
 test("rejects the old single-credential option instead of silently disabling it", () => {
 	// @ts-expect-error Simulate a caller still passing the removed option at runtime.
-	expect(() => new GondolinSandbox(1, { credential: {} })).toThrow("use secrets instead of credential");
+	expect(() => new VMSandbox(1, { credential: {} })).toThrow("use secrets instead of credential");
 });
 
 vmTest("injects only configured secret placeholders and regenerates them per turn", async () => {
-	const sandbox = new GondolinSandbox(1, { secrets: {
+	const sandbox = new VMSandbox(1, { secrets: {
 		...workspaceSecrets,
 		UNSET_SECRET: { value: " \t", hosts: ["api.example.com"] },
 	} });
-	const readPlaceholders = async (turn: GondolinTurn) => {
+	const readPlaceholders = async (turn: VMSandboxTurn) => {
 		const result = await turn.exec('test -z "${UNSET_SECRET+x}" && printf "%s\\n%s\\n" "$GEMINI_API_KEY" "$GH_TOKEN"');
 		expect(result.code, result.stderr).toBe(0);
 		const placeholders = result.stdout.trim().split("\n");
@@ -186,7 +186,7 @@ vmTest("reuses the guest per turn, persists only projected data, and does not ex
 	writeFileSync(join(chat.attachmentsDir, "input.txt"), "incoming");
 	writeFileSync(join(workspace, "skills", "shared.txt"), "shared skill");
 	writeFileSync(join(otherChat.scratchDir, "secret.txt"), "another chat");
-	const sandbox = new GondolinSandbox(1);
+	const sandbox = new VMSandbox(1);
 	const turn = openTurn(sandbox);
 	const before = await turn.exec("printf scratch > scratch/work.txt; printf turn > /tmp/turn; printf note > MEMORY.md; printf err >&2; exit 7");
 	expect(before).toEqual({ stdout: "", stderr: "err", code: 7 });
@@ -208,7 +208,7 @@ vmTest("persists edits to the original attachment and reloads local and shared s
 	const attachment = join(chat.attachmentsDir, "input.txt");
 	writeFileSync(attachment, "original");
 	writeFileSync(join(otherChat.attachmentsDir, "input.txt"), "private");
-	const sandbox = new GondolinSandbox(1, { writableWorkspaceContent: true });
+	const sandbox = new VMSandbox(1, { writableWorkspaceContent: true });
 	const turn = openTurn(sandbox);
 	expect(loadChatSkills(chat)).toEqual([]);
 	const edits = await turn.exec([
@@ -235,7 +235,7 @@ vmTest("persists edits to the original attachment and reloads local and shared s
 }, 30_000);
 
 vmTest("does not let writable mounts plant host-visible filesystem links", async () => {
-	const turn = openTurn(new GondolinSandbox(1, { writableWorkspaceContent: true }));
+	const turn = openTurn(new VMSandbox(1, { writableWorkspaceContent: true }));
 	for (const mount of ["attachments", "skills", "/workspace/skills"]) {
 		const setup = await turn.exec(`touch ${mount}/target`);
 		expect(setup).toEqual({ stdout: "", stderr: "", code: 0 });
@@ -250,7 +250,7 @@ vmTest("does not let writable mounts plant host-visible filesystem links", async
 }, 30_000);
 
 vmTest("preserves mounted directories and their modes while allowing changes inside them", async () => {
-	const turn = openTurn(new GondolinSandbox(1, { writableWorkspaceContent: true }));
+	const turn = openTurn(new VMSandbox(1, { writableWorkspaceContent: true }));
 	const mounts = [
 		["/data/workspace/42/attachments", chat.attachmentsDir],
 		["/data/workspace/42/skills", chat.skillsDir],
@@ -274,14 +274,14 @@ vmTest("preserves mounted directories and their modes while allowing changes ins
 }, 30_000);
 
 test("a closed turn reports that the workspace sandbox has closed", async () => {
-	const turn = openTurn(new GondolinSandbox(1));
+	const turn = openTurn(new VMSandbox(1));
 	await turn.close();
 	await expect(createBashTool(turn).execute("closed", { label: "Inspect workspace", command: "pwd" }))
 		.rejects.toThrow("The workspace sandbox turn is closed.");
 });
 
 vmTest("releases its slot and terminates the VM on command timeout", async () => {
-	const sandbox = new GondolinSandbox(1);
+	const sandbox = new VMSandbox(1);
 	const turn = openTurn(sandbox);
 	await turn.exec("true");
 	const waiting = openTurn(sandbox);
@@ -292,7 +292,7 @@ vmTest("releases its slot and terminates the VM on command timeout", async () =>
 }, 30_000);
 
 vmTest("allows a queued turn to time out without closing the active VM", async () => {
-	const sandbox = new GondolinSandbox(1);
+	const sandbox = new VMSandbox(1);
 	const owner = openTurn(sandbox);
 	await owner.exec("printf owner > /tmp/owner");
 	const queued = openTurn(sandbox);
@@ -303,7 +303,7 @@ vmTest("allows a queued turn to time out without closing the active VM", async (
 }, 30_000);
 
 vmTest("rejects queued and new turns when VM cleanup fails", async () => {
-	const sandbox = new GondolinSandbox(1);
+	const sandbox = new VMSandbox(1);
 	const owner = sandbox.turn(chat);
 	await owner.exec("true");
 	const close = VM.prototype.close;
@@ -315,7 +315,7 @@ vmTest("rejects queued and new turns when VM cleanup fails", async () => {
 		const waiting = openTurn(sandbox).exec("true").catch((error: Error) => error.message);
 		await expect(owner.close()).rejects.toThrow("injected SDK cleanup error");
 		const outcome = await Promise.race([waiting, Bun.sleep(600).then(() => "turn is still waiting")]);
-		const message = "Workspace microVM cleanup failed; the bot must be restarted before starting another turn.";
+		const message = "Workspace VM cleanup failed; the bot must be restarted before starting another turn.";
 		expect(outcome).toBe(message);
 		await expect(openTurn(sandbox).exec("true", { timeout: 0.5 })).rejects.toThrow(message);
 	} finally {
@@ -338,14 +338,14 @@ test("a turn with an empty image cache fails without contacting the registry", a
 	const previousRegistry = process.env.GONDOLIN_IMAGE_REGISTRY_URL;
 	process.env.GONDOLIN_IMAGE_STORE = join(workspace, "empty-image-store");
 	process.env.GONDOLIN_IMAGE_REGISTRY_URL = new URL("registry.json", registry.url).href;
-	const turn = openTurn(new GondolinSandbox(1));
+	const turn = openTurn(new VMSandbox(1));
 	const result = createBashTool(turn).execute("missing-image", { label: "Check workspace", command: "true", timeout: 0.1 })
 		.catch((error: Error) => error);
 	try {
 		const outcome = await Promise.race([result, Bun.sleep(600).then(() => "turn is still waiting")]);
 		expect(outcome).toBeInstanceOf(SandboxConfigError);
 		if (!(outcome instanceof SandboxConfigError)) throw new Error("Expected a sandbox configuration error");
-		expect(outcome.message).toBe("The workspace microVM image is unavailable. Ask the bot operator to run startup validation.");
+		expect(outcome.message).toBe("The workspace VM image is unavailable. Ask the bot operator to run startup validation.");
 		expect(outcome.cause).toBeInstanceOf(Error);
 		expect(requests).toBe(0);
 	} finally {
@@ -361,14 +361,14 @@ test("a turn with an empty image cache fails without contacting the registry", a
 
 vmTest("reads one line of a large file without stopping the VM", async () => {
 	writeFileSync(join(chat.scratchDir, "large.txt"), "first\n" + "x".repeat(11 * 1024 * 1024));
-	const turn = openTurn(new GondolinSandbox(1));
+	const turn = openTurn(new VMSandbox(1));
 	const result = await createReadTool(turn).execute("read", { label: "Read header", path: "scratch/large.txt", limit: 1 });
 	expect(result.content).toEqual([{ type: "text", text: "first\n\n[1 more lines in file. Use offset=2 to continue]" }]);
 	expect((await turn.exec("echo still-running")).stdout).toBe("still-running\n");
 }, 30_000);
 
 vmTest("exports guest bytes from the current chat without opening host paths", async () => {
-	const turn = openTurn(new GondolinSandbox(1));
+	const turn = openTurn(new VMSandbox(1));
 	const otherChat = ensureChatDir(workspace, "43");
 	const hostFile = join(otherChat.scratchDir, "file.txt");
 	writeFileSync(hostFile, "another chat\n");
@@ -381,7 +381,7 @@ vmTest("exports guest bytes from the current chat without opening host paths", a
 }, 30_000);
 
 vmTest("reports the workspace output limit when a command exceeds it", async () => {
-	const turn = openTurn(new GondolinSandbox(1));
+	const turn = openTurn(new VMSandbox(1));
 	// Boot separately so host load cannot turn the output-limit check into a command timeout.
 	await turn.exec("true");
 	await expect(createBashTool(turn).execute("output-limit", {
@@ -390,7 +390,7 @@ vmTest("reports the workspace output limit when a command exceeds it", async () 
 }, 45_000);
 
 vmTest("keeps truncated bash output readable inside the live turn", async () => {
-	const turn = openTurn(new GondolinSandbox(1));
+	const turn = openTurn(new VMSandbox(1));
 	const tool = createBashTool(turn);
 	const result = await tool.execute("long-output", { label: "Generate lines", command: "seq 10000" });
 	const spill = result.details?.fullOutputPath;

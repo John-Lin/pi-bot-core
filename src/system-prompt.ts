@@ -129,7 +129,7 @@ export function buildBaseSystemPrompt(input: BaseSystemPromptInput): string {
 ${platform.formattingSection}
 
 ## Environment
-Workspace tools run in a per-turn Linux microVM sandbox with public HTTP(S) access. Private networks and loopback are blocked.
+Workspace tools run in a per-turn Linux VM sandbox with public HTTP(S) access. Private networks and loopback are blocked.
 - Commands start in ${conversationPath}; use ${conversationPath}/scratch for working files.
 - The VM is discarded at the end of this run. Only writes to scratch and this ${noun}'s memory${writableContent ? ", attachments, and skills, plus shared skills" : ""} persist.
 

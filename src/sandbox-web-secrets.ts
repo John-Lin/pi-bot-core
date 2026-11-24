@@ -1,13 +1,13 @@
 import { createHttpHooks } from "@earendil-works/gondolin";
 import { SandboxConfigError } from "./sandbox.js";
 
-export interface GondolinWebSecret {
+export interface SandboxWebSecret {
 	/** Host-only value. An absent or blank value disables this secret. */
 	value?: string;
 	hosts: readonly string[];
 }
 
-export type ActiveGondolinSecret = GondolinWebSecret & { env: string; value: string };
+export type ActiveSandboxWebSecret = SandboxWebSecret & { env: string; value: string };
 
 const ROUTING_HEADERS = new Set([
 	"connection", "content-length", "forwarded", "host", "keep-alive", "proxy-authorization", "proxy-connection",
@@ -15,14 +15,14 @@ const ROUTING_HEADERS = new Set([
 ]);
 
 function invalidSecret(reason: string): never {
-	throw new SandboxConfigError(`Invalid Gondolin web secret: ${reason}`);
+	throw new SandboxConfigError(`Invalid sandbox web secret: ${reason}`);
 }
 
 /** Validate the scope even for disabled secrets, without logging config values. */
-export function normalizeGondolinSecrets(config: Readonly<Record<string, GondolinWebSecret>> = {}): ActiveGondolinSecret[] {
+export function normalizeSandboxWebSecrets(config: Readonly<Record<string, SandboxWebSecret>> = {}): ActiveSandboxWebSecret[] {
 	if (!config || typeof config !== "object" || Array.isArray(config)) invalidSecret("expected a map keyed by environment variable");
 	const names = new Set<string>();
-	const secrets: ActiveGondolinSecret[] = [];
+	const secrets: ActiveSandboxWebSecret[] = [];
 	for (const [env, secret] of Object.entries(config)) {
 		const name = env.toLowerCase();
 		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(env) || name === "__proto__" || names.has(name)) {
@@ -57,7 +57,7 @@ function decodeBasic(name: string, value: string): string | undefined {
 }
 
 /** Apply the request boundary before Gondolin expands any placeholder. */
-export function createGondolinSecretHooks(secrets: readonly ActiveGondolinSecret[]) {
+export function createSandboxWebSecretHooks(secrets: readonly ActiveSandboxWebSecret[]) {
 	if (secrets.length === 0) return undefined;
 	const { env, httpHooks } = createHttpHooks({
 		secretPlaceholderMode: "unique",
