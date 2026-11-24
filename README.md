@@ -85,20 +85,18 @@ const sandbox = new GondolinSandbox(2, {
     GEMINI_API_KEY: {
       value: process.env.GEMINI_API_KEY,
       hosts: ["generativelanguage.googleapis.com"],
-      header: "x-goog-api-key",
     },
     GH_TOKEN: {
       value: process.env.BOT_GITHUB_PAT,
       hosts: ["api.github.com", "github.com"],
-      header: "authorization",
     },
   },
 });
 ```
 
-Gondolin generates a fresh placeholder for each enabled secret in each turn's VM. The VM receives only the placeholders, while the Gondolin host proxy substitutes the value in the declared request header. An application header uses the whole placeholder as its value; `Authorization` supports `Bearer`, GitHub CLI's `token` scheme, and a Basic Auth password for HTTPS Git. Keep the PAT in its raw form on the host, without an auth scheme prefix. Remove `github.com` if only API access is required.
+Gondolin generates a fresh placeholder for each enabled secret in each turn's VM. The VM receives only the placeholders. Guest clients read the environment and choose their own request headers; the Gondolin host proxy substitutes placeholders in those headers, including Basic Auth for HTTPS Git. Keep the PAT in its raw form on the host, without an auth scheme prefix. Remove `github.com` if only API access is required.
 
-Use exact hostnames, not wildcards or ports. A secret can be used on **any path or method** on its approved HTTPS hosts, on the default HTTPS port. The gateway checks the request authority, rejects already expanded secret values on redirected hops, and never substitutes keys into the query string or request body. Credential scope does not restrict unrelated public HTTP(S). An absent or blank value disables that secret, but its policy must still be valid.
+Use exact hostnames, not wildcards or ports. A secret can be used on **any path or method** on its approved HTTPS hosts, on the default HTTPS port. The gateway checks the request authority, blocks substitution in routing headers such as `Host`, and rejects already expanded secret values on redirected hops. It never substitutes keys into the query string or request body. Credential scope does not restrict unrelated public HTTP(S). An absent or blank value disables that secret, but its policy must still be valid.
 
 Every chat using a sandbox with these secrets can exercise their authority; this is not per-chat authorization. Use a least-privilege credential, such as a fine-grained PAT limited to the intended repository. The old single `credential` option is not supported; callers must migrate to `secrets` and explicitly select the host scope before upgrading.
 

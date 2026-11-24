@@ -115,8 +115,8 @@ test.each(["", "libkrun", null])("rejects an invalid backend from deployment con
 });
 
 const workspaceSecrets = {
-	GEMINI_API_KEY: { value: "fixture-gemini-not-a-real-key", hosts: ["generativelanguage.googleapis.com"], header: "x-goog-api-key" },
-	GH_TOKEN: { value: "fixture-github-not-a-real-pat", hosts: ["api.github.com"], header: "authorization" },
+	GEMINI_API_KEY: { value: "fixture-gemini-not-a-real-key", hosts: ["generativelanguage.googleapis.com"] },
+	GH_TOKEN: { value: "fixture-github-not-a-real-pat", hosts: ["api.github.com"] },
 };
 
 webTest("allows public HTTPS and denies private destinations and off-host credentials", async () => {
@@ -138,8 +138,7 @@ webTest("allows public HTTPS and denies private destinations and off-host creden
 }, 45_000);
 
 test.each([
-	{ header: "Connection" },
-	{ header: "proxy-authorization" },
+	{ header: "x-test-api-key" },
 	{ hosts: [] },
 	{ hosts: ["*.example.com"] },
 	{ hosts: ["api.example.com:8443"] },
@@ -147,7 +146,7 @@ test.each([
 	{ value: "fixture\r\ninvalid" },
 	{ request: { method: "POST", urls: ["https://api.example.com/unsupported"] } },
 ])("rejects invalid secret policy before starting a turn (%j)", (scope) => {
-	expect(() => new GondolinSandbox(1, { secrets: { TEST_API_KEY: { hosts: ["api.example.com"], header: "x-test-api-key", ...scope } } }))
+	expect(() => new GondolinSandbox(1, { secrets: { TEST_API_KEY: { hosts: ["api.example.com"], ...scope } } }))
 		.toThrow("Invalid Gondolin web secret");
 });
 
@@ -159,7 +158,7 @@ test("rejects the old single-credential option instead of silently disabling it"
 vmTest("injects only configured secret placeholders and regenerates them per turn", async () => {
 	const sandbox = new GondolinSandbox(1, { secrets: {
 		...workspaceSecrets,
-		UNSET_SECRET: { value: " \t", hosts: ["api.example.com"], header: "x-api-key" },
+		UNSET_SECRET: { value: " \t", hosts: ["api.example.com"] },
 	} });
 	const readPlaceholders = async (turn: GondolinTurn) => {
 		const result = await turn.exec('test -z "${UNSET_SECRET+x}" && printf "%s\\n%s\\n" "$GEMINI_API_KEY" "$GH_TOKEN"');

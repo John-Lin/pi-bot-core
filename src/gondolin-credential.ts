@@ -5,7 +5,6 @@ export interface GondolinWebSecret {
 	/** Host-only value. An absent or blank value disables this secret. */
 	value?: string;
 	hosts: readonly string[];
-	header: string;
 }
 
 export type ActiveGondolinSecret = GondolinWebSecret & { env: string; value: string };
@@ -30,12 +29,8 @@ export function normalizeGondolinSecrets(config: Readonly<Record<string, Gondoli
 			invalidSecret("expected distinct environment variable names");
 		}
 		names.add(name);
-		if (!secret || Object.keys(secret).some((key) => key !== "hosts" && key !== "header" && key !== "value")) {
-			invalidSecret("expected only hosts, header, and an optional value");
-		}
-		const header = typeof secret.header === "string" ? secret.header.toLowerCase() : "";
-		if (!/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(header) || ROUTING_HEADERS.has(header)) {
-			invalidSecret("expected an application header");
+		if (!secret || Object.keys(secret).some((key) => key !== "hosts" && key !== "value")) {
+			invalidSecret("expected only hosts and an optional value");
 		}
 		if (!Array.isArray(secret.hosts) || secret.hosts.length === 0) invalidSecret("expected at least one exact hostname");
 		const hosts = secret.hosts.map((raw: string) => {
@@ -49,27 +44,16 @@ export function normalizeGondolinSecrets(config: Readonly<Record<string, Gondoli
 		const value = secret.value?.trim();
 		if (value) {
 			if (!/^[\x20-\x7e]+$/.test(value)) invalidSecret("expected a value safe for an HTTP header");
-			secrets.push({ env, value, hosts, header });
+			secrets.push({ env, value, hosts });
 		}
 	}
 	return secrets;
-}
-
-function isSecretDestination(url: URL, hosts: readonly string[]): boolean {
-	return url.protocol === "https:" && !url.port && !url.username && !url.password && hosts.includes(url.hostname);
 }
 
 function decodeBasic(name: string, value: string): string | undefined {
 	if (name !== "authorization" && name !== "proxy-authorization") return;
 	const token = /^Basic\s+(\S+)\s*$/i.exec(value)?.[1];
 	return token && Buffer.from(token, "base64").toString("utf8");
-}
-
-function permitsPlaceholder(value: string, basic: string | undefined, secret: ActiveGondolinSecret, placeholder: string): boolean {
-	if (secret.header !== "authorization") return value === placeholder;
-	if (basic === undefined) return /^(?:Bearer|token)\s+(\S+)$/i.exec(value)?.[1] === placeholder;
-	const colon = basic.indexOf(":");
-	return colon > 0 && basic.indexOf(placeholder) === colon + 1 && basic.slice(colon + 1) === placeholder && !value.includes(placeholder);
 }
 
 /** Apply the request boundary before Gondolin expands any placeholder. */
@@ -83,21 +67,19 @@ export function createGondolinSecretHooks(secrets: readonly ActiveGondolinSecret
 	httpHooks.onRequest = (request) => {
 		const url = new URL(request.url);
 		const host = request.headers.get("host");
-		const headers = [...request.headers].map(([name, value]) => ({ name, value, basic: decodeBasic(name, value) }));
+		const secureAuthority = url.protocol === "https:" && !url.port && !url.username && !url.password &&
+			(host === null || host.toLowerCase() === url.host);
 		let usesSecret = false;
-		for (const secret of secrets) {
-			const placeholder = env[secret.env]!;
-			// Redirected requests can retain plaintext or Basic-encoded credentials.
-			if (headers.some(({ value, basic }) => value.includes(secret.value) || basic?.includes(secret.value))) return denied();
-			const references = headers.filter(({ value, basic }) => value.includes(placeholder) || basic?.includes(placeholder));
-			if (references.length === 0) continue;
-			const [reference] = references;
-			if (references.length !== 1 || reference?.name !== secret.header ||
-				!permitsPlaceholder(reference.value, reference.basic, secret, placeholder) ||
-				!isSecretDestination(url, secret.hosts) || (host !== null && host.toLowerCase() !== url.host)) {
-				return denied();
+		for (const [name, value] of request.headers) {
+			const basic = decodeBasic(name, value);
+			for (const secret of secrets) {
+				// Redirected requests can retain plaintext or Basic-encoded credentials.
+				if (value.includes(secret.value) || basic?.includes(secret.value)) return denied();
+				const placeholder = env[secret.env]!;
+				if (!value.includes(placeholder) && !basic?.includes(placeholder)) continue;
+				if (!secureAuthority || !secret.hosts.includes(url.hostname) || ROUTING_HEADERS.has(name)) return denied();
+				usesSecret = true;
 			}
-			usesSecret = true;
 		}
 		// Derive upstream authority from the checked URL rather than a guest header.
 		if (usesSecret) request.headers.delete("host");

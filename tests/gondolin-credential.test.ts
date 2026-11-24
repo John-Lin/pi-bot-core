@@ -5,12 +5,10 @@ const interactions = "https://api.example.com/v1/interactions";
 const decisions = "https://api.example.com/v1/decisions";
 const key = "fixture-host-only-key-not-a-real-credential";
 const pat = "fixture-host-only-pat-not-a-real-credential";
-const keyConfig = { value: key, hosts: ["API.EXAMPLE.COM"], header: "X-Test-Api-Key" };
-
 function secretHooks(value = key) {
 	const hooks = createGondolinSecretHooks(normalizeGondolinSecrets({
-		TEST_API_KEY: { ...keyConfig, value },
-		GH_TOKEN: { value: pat, hosts: ["api.github.com", "github.com"], header: "authorization" },
+		TEST_API_KEY: { value, hosts: ["API.EXAMPLE.COM"] },
+		GH_TOKEN: { value: pat, hosts: ["api.github.com", "github.com"] },
 	}));
 	if (!hooks?.httpHooks.onRequest) throw new Error("Expected a Gondolin request hook");
 	return { keyEnv: hooks.env.TEST_API_KEY!, ghEnv: hooks.env.GH_TOKEN!, onRequest: hooks.httpHooks.onRequest };
@@ -27,7 +25,7 @@ async function expectDenied(onRequest: ReturnType<typeof secretHooks>["onRequest
 	expect(await result.text()).toBe("The workspace credential is not allowed for this request.");
 }
 
-test.each([interactions, decisions])("fills only the configured header on POST %s", async (url) => {
+test.each([interactions, decisions])("expands the placeholder in a header without changing the POST body for %s", async (url) => {
 	const { keyEnv, onRequest } = secretHooks();
 	const forwarded = await onRequest(new Request(url, {
 		method: "POST",
@@ -50,6 +48,16 @@ test("uses the same host policy for other paths and methods without expanding UR
 	expect(forwarded.headers.get("x-test-api-key")).toBe(key);
 });
 
+test("expands placeholders in caller-selected headers without a header option", async () => {
+	const { keyEnv, onRequest } = secretHooks();
+	const forwarded = await onRequest(new Request(interactions, {
+		headers: { "x-client-auth": `Key ${keyEnv}`, "x-service-key": keyEnv },
+	}));
+	if (!(forwarded instanceof Request)) throw new Error("Expected the allowed request to be forwarded");
+	expect(forwarded.headers.get("x-client-auth")).toBe(`Key ${key}`);
+	expect(forwarded.headers.get("x-service-key")).toBe(key);
+});
+
 test.each(["token", "Bearer", "Basic"])("forwards the PAT using %s authorization", async (scheme) => {
 	const { ghEnv, onRequest } = secretHooks();
 	const isBasic = scheme === "Basic";
@@ -62,20 +70,17 @@ test.each(["token", "Bearer", "Basic"])("forwards the PAT using %s authorization
 	expect(forwarded.headers.get("authorization")).toBe(isBasic ? basic("x-access-token", pat) : `${scheme} ${pat}`);
 });
 
-test("denies injection on an unapproved host, transport, or header", async () => {
+test("denies injection on an unapproved host, transport, or routing header", async () => {
 	const { keyEnv, ghEnv, onRequest } = secretHooks();
 	const cases = [
 		new Request("https://example.com/v1/interactions", { headers: { "x-test-api-key": keyEnv } }),
 		new Request("http://api.example.com/v1/interactions", { headers: { "x-test-api-key": keyEnv } }),
 		new Request("https://api.example.com:8443/v1/decisions", { headers: { "x-test-api-key": keyEnv } }),
-		new Request(interactions, { headers: { "x-other-header": keyEnv } }),
 		new Request(interactions, { headers: { connection: keyEnv } }),
+		new Request(interactions, { headers: { "x-forwarded-host": keyEnv } }),
 		new Request(interactions, { headers: { host: "other.example.com", "x-test-api-key": keyEnv } }),
-		new Request(interactions, { headers: { "x-test-api-key": keyEnv, "x-other-header": keyEnv } }),
 		new Request(interactions, { headers: { "x-test-api-key": keyEnv, authorization: `token ${ghEnv}` } }),
 		new Request("https://example.com/owner/repo.git", { headers: { authorization: basic("git", ghEnv) } }),
-		new Request("https://api.github.com/user", { headers: { authorization: basic(ghEnv, "not-the-placeholder") } }),
-		new Request("https://api.github.com/user", { headers: { authorization: basic("git", ghEnv), "x-other-header": ghEnv } }),
 		new Request("https://api.github.com/user", { headers: { "proxy-authorization": basic("git", ghEnv) } }),
 	];
 	for (const request of cases) await expectDenied(onRequest, request);
