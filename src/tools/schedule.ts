@@ -1,7 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Cron } from "croner";
-import { randomUUID } from "crypto";
-import { mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
+import { randomBytes } from "crypto";
+import { closeSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { Schema, Static } from "@earendil-works/pi-schema";
 
@@ -58,7 +58,11 @@ export function buildEventPayload(
 			throw new Error("schedule_event: 'at' is only for type='one-shot'");
 		}
 		try {
+			// Some runtimes accept UTC offsets here, but the tool requires an IANA name.
+			const timezone = new Intl.DateTimeFormat("en", { timeZone: args.timezone }).resolvedOptions().timeZone;
+			if (/^[+-]/.test(timezone)) throw new Error("Use an IANA timezone name, not a UTC offset");
 			const cron = new Cron(args.schedule, { timezone: args.timezone });
+			if (cron.getOnce()) throw new Error("Use a recurring cron pattern, not a one-shot date");
 			if (!cron.nextRun(new Date(now))) throw new Error("No future occurrence");
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
@@ -138,14 +142,18 @@ export function createScheduleTool<TParams extends Schema>(
 
 			mkdirSync(eventsDir, { recursive: true });
 			const fullPath = join(eventsDir, filename);
-			// The watcher only reads .json files. Publish after the payload is complete.
-			const tempPath = `${fullPath}.${randomUUID()}.tmp`;
+			// Keep the temporary name shorter than any event name; the watcher ignores .tmp files.
+			const tempPath = join(eventsDir, `${randomBytes(6).toString("hex")}.tmp`);
+			const fd = openSync(tempPath, "wx");
 			try {
-				writeFileSync(tempPath, JSON.stringify(json, null, 2), { encoding: "utf-8", flag: "wx" });
+				try {
+					writeFileSync(fd, JSON.stringify(json, null, 2), { encoding: "utf-8" });
+				} finally {
+					closeSync(fd);
+				}
 				renameSync(tempPath, fullPath);
-			} catch (error) {
+			} finally {
 				rmSync(tempPath, { force: true });
-				throw error;
 			}
 
 			const summary =
