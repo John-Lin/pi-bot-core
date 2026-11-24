@@ -53,8 +53,8 @@ function resolveBackend(backend: unknown): VMSandboxBackend {
 	throw new SandboxConfigError('Invalid VM sandbox backend; expected "qemu" or "krun"');
 }
 
-function vmResources(backend: VMSandboxBackend): Pick<VMOptions, "cpus" | "memory" | "rootfs"> {
-	return backend === "krun" ? { cpus: 2, memory: "2560M", rootfs: { size: "8G" } } : {};
+function vmResources(): Pick<VMOptions, "cpus" | "memory" | "rootfs"> {
+	return { cpus: 2, memory: "2560M", rootfs: { size: "8G" } };
 }
 
 async function requireCommand(command: string): Promise<void> {
@@ -95,7 +95,7 @@ export async function validateVMSandbox(options: Pick<VMSandboxOptions, "backend
 	// Only a boot can confirm that the krun runner can use the host hypervisor.
 	try {
 		const vm = new VM({
-			...vmResources(backend),
+			...vmResources(),
 			sandbox: { vmm: backend, imagePath: image.assetDir, netEnabled: false },
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 		});
@@ -289,7 +289,7 @@ export class VMSandboxTurn implements Executor {
 			})
 			: new ReadonlyProvider(new RealFSProvider(path));
 		this.vm = new VM({
-			...vmResources(this.backend),
+			...vmResources(),
 			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks: secretHooks?.httpHooks, allowWebSockets: false },
 			env: secretHooks?.env,
 			startTimeoutMs: VM_START_TIMEOUT_MS,
