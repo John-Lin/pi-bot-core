@@ -8,7 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./sandbox": "./src/sandbox.ts",
-    "./gondolin": "./src/gondolin.ts",
+    "./vm-sandbox": "./src/vm-sandbox.ts",
     "./agent-settings": "./src/agent-settings.ts",
     "./agent-extensions": "./src/agent-extensions.ts",
     "./tools": "./src/tools/index.ts",

@@ -39,9 +39,9 @@ const baseInput = {
 };
 
 describe("buildBaseSystemPrompt", () => {
-	test("describes the per-turn Linux microVM without naming the backend", () => {
+	test("describes the per-turn Linux VM sandbox without naming the backend", () => {
 		const p = buildBaseSystemPrompt(baseInput);
-		expect(p).toContain("Workspace tools run in a per-turn Linux microVM sandbox");
+		expect(p).toContain("Workspace tools run in a per-turn Linux VM sandbox");
 		expect(p).not.toMatch(/gondolin|krun|qemu/i);
 		expect(p).toContain("public HTTP(S)");
 		expect(p).toContain("Private networks and loopback are blocked");
@@ -54,7 +54,7 @@ describe("buildBaseSystemPrompt", () => {
 		}
 	});
 
-	test("Gondolin describes writable skills and original attachments only when enabled", () => {
+	test("describes writable skills and original attachments only when enabled", () => {
 		const writable = buildBaseSystemPrompt({ ...baseInput, writableWorkspaceContent: true });
 		expect(writable).toContain("**When you find yourself repeating a non-trivial recipe");
 		expect(writable).toContain("Files shared by the user (writable)");
@@ -68,7 +68,7 @@ describe("buildBaseSystemPrompt", () => {
 		expect(readOnly).toContain("Files shared by the user (read-only)");
 	});
 
-	test("Gondolin does not promise cancellation from workspace tools", () => {
+	test("does not promise cancellation from workspace tools", () => {
 		const p = buildBaseSystemPrompt(baseInput);
 		expect(p).toContain("You cannot list or cancel events from the VM");
 		expect(p).not.toContain("Periodic events persist until you delete them");

@@ -12,7 +12,7 @@ import { obj, opt, str } from "@earendil-works/pi-schema";
  *   the LLM omitted it.
  *
  * The platform must validate and export the guest path through the current
- * Gondolin turn before uploading it. Never open a guest-supplied path on the host.
+ * VM sandbox turn before uploading it. Never open a guest-supplied path on the host.
  */
 export type AttachUploader = (
 	filePath: string,
@@ -45,7 +45,7 @@ const attachSchema = obj({
  *   so that chats running in parallel cannot clobber each other's uploader.
  * - Uploader signature carries `{ label, fileName }`; the bot decides what to
  *   do with `label` (Telegram uses it as caption, Discord ignores).
- * - Rejects relative paths before calling the uploader. The current Gondolin
+ * - Rejects relative paths before calling the uploader. The active VM sandbox
  *   turn enforces allowed guest directories when the uploader exports the file.
  */
 export function createAttachTool(): AttachToolHandle {

@@ -4,14 +4,14 @@ Shared runtime and building blocks for pi-mono based bots (e.g. `pi-discord-bot`
 
 Inspired by [pi-mono](https://github.com/badlogic/pi-mono); some modules were originally ported from `pi-mono/packages/mom` and remain MIT-licensed under the original copyright. See `LICENSE`.
 
-Workspace tools run in a per-turn Linux microVM using the Gondolin SDK through the shared `Executor` interface. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
+Workspace tools run in a per-turn Linux VM using the Gondolin SDK through the shared `Executor` interface. Higher-level modules (workspace, message log, event scheduler, telegraph, …) are pulled out of the individual bot repos so they share one implementation.
 
 ## Contents
 
 ### Sandbox / Executor (`pi-bot-core`, `pi-bot-core/sandbox`)
 
 - `Executor` — the interface used by the workspace tools
-- `pi-bot-core/gondolin` — `validateGondolinSandbox()` checks startup requirements, and `GondolinSandbox` opens one lazy, chat-scoped `Executor` per agent turn
+- `pi-bot-core/vm-sandbox` — `validateVMSandbox()` checks startup requirements, and `VMSandbox` opens one lazy, chat-scoped `VMSandboxTurn` implementing `Executor` per agent turn
 
 ### Agent tools (`pi-bot-core/tools`)
 
@@ -49,16 +49,16 @@ Immediate events tolerate short outages: files last modified within five minutes
 
 ## Usage
 
-### Workspace microVM sandbox
+### Workspace VM sandbox
 
 ```ts
 import { createBotTools } from "pi-bot-core";
-import { GondolinSandbox, validateGondolinSandbox } from "pi-bot-core/gondolin";
+import { VMSandbox, validateVMSandbox } from "pi-bot-core/vm-sandbox";
 import { ensureChatDir } from "pi-bot-core/workspace";
 
 const sandboxOptions = { backend: "qemu" } as const; // Use "krun" to opt in.
-await validateGondolinSandbox(sandboxOptions); // Once at startup.
-const sandbox = new GondolinSandbox(2, sandboxOptions); // Share one instance across the bot.
+await validateVMSandbox(sandboxOptions); // Once at startup.
+const sandbox = new VMSandbox(2, sandboxOptions); // Share one instance across the bot.
 const paths = ensureChatDir(workspace, chatId); // Checks all directories before creating the layout.
 const turn = sandbox.turn(paths);
 try {
@@ -71,16 +71,16 @@ try {
 
 The chat ID must be a single directory name using only ASCII letters, digits, `-`, `_`, or `.`. It cannot be empty, `.` or `..`. `MEMORY.md` and `skills` are reserved at the workspace root, regardless of case.
 
-Gondolin defaults to QEMU. Bots can pass `backend: "krun"` to select libkrun explicitly; there is no automatic fallback. Pass the same options to startup validation and the sandbox constructor so that the backend you validate is the one used for turns. Gondolin uses the pinned `alpine-base:0.3.2` image, with public HTTP(S) available in every VM. Private addresses, generic TCP/UDP, and WebSocket upgrades are blocked. A guest can send chat-visible data to public destinations, so allow only trusted users or groups to invoke guest tools. Startup validation checks the selected backend's prerequisites and prepares the image with a two-minute deadline. For krun, it also boots a short-lived offline VM to check the host hypervisor. The first workspace tool call in each turn boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_GONDOLIN=1 bun test tests/gondolin.test.ts` exercises this on a real VM. Set `PI_BOT_TEST_GONDOLIN_WEB=1` to also test public HTTPS against `example.com`.
+The VM sandbox defaults to QEMU. Bots can pass `backend: "krun"` to select libkrun explicitly; there is no automatic fallback. The API name does not imply a particular backend or QEMU machine type. Pass the same options to startup validation and the sandbox constructor so that the backend you validate is the one used for turns. The sandbox uses the pinned `alpine-base:0.3.2` image (`VM_SANDBOX_IMAGE`), with public HTTP(S) available in every VM. Private addresses, generic TCP/UDP, and WebSocket upgrades are blocked. A guest can send chat-visible data to public destinations, so allow only trusted users or groups to invoke guest tools. Startup validation checks the selected backend's prerequisites and prepares the image with a two-minute deadline. For krun, it also boots a short-lived offline VM to check the host hypervisor. The first workspace tool call in each turn boots from cache; if the image is unavailable, the turn fails rather than downloading it. If the SDK reports a VM cleanup failure, the pool rejects new and waiting turns until the bot is restarted. Each chat has writable `scratch/` and `MEMORY.md`, read-only attachments and skills, and no guest access to its host session or other chats. Close the turn on completion/cancellation; closing does not remove files on the host. Use `turn.readAttachment()` to export bytes rather than opening a guest-supplied path in the host. `PI_BOT_TEST_VM_SANDBOX=1 bun test tests/vm-sandbox.test.ts` exercises this on a real VM. Set `PI_BOT_TEST_VM_SANDBOX_WEB=1` to also test public HTTPS against `example.com`.
 
-With `writableWorkspaceContent: true`, the current chat's attachments (including originals), chat skills, and shared skills also accept persistent writes. Guests can edit contents but cannot remove the mount directories, change their permissions, or create symbolic or hard links in them. Host code reads skills and downloads attachments outside the VM's filesystem. Only enable this for trusted chats: edits to the shared skills affect other chats. Pass the same `writableWorkspaceContent` option directly to `buildBaseSystemPrompt()` so the agent sees the actual permissions. The prompt describes the Linux VM sandbox; pass `GONDOLIN_WORKSPACE` as `workspacePath`.
+With `writableWorkspaceContent: true`, the current chat's attachments (including originals), chat skills, and shared skills also accept persistent writes. Guests can edit contents but cannot remove the mount directories, change their permissions, or create symbolic or hard links in them. Host code reads skills and downloads attachments outside the VM's filesystem. Only enable this for trusted chats: edits to the shared skills affect other chats. Pass the same `writableWorkspaceContent` option directly to `buildBaseSystemPrompt()` so the agent sees the actual permissions. The prompt describes the Linux VM sandbox; pass `WORKSPACE_GUEST_ROOT` from `pi-bot-core/vm-sandbox` as `workspacePath`.
 
 #### Workspace web secrets
 
-Pass `secrets` on `GondolinSandboxOptions`, keyed by guest environment variable name. The caller selects the host values; the sandbox does not read or forward the entire host environment.
+Pass `secrets` on `VMSandboxOptions`, keyed by guest environment variable name. The caller selects the host values; the sandbox does not read or forward the entire host environment.
 
 ```ts
-const sandbox = new GondolinSandbox(2, {
+const sandbox = new VMSandbox(2, {
   secrets: {
     GEMINI_API_KEY: {
       value: process.env.GEMINI_API_KEY,
@@ -241,7 +241,7 @@ HTTP servers without an `Authorization` header (any capitalization) use the SDK'
 
 MCP connections never start a browser sign-in. Missing or revoked credentials are reported as `<server>: needs sign-in` through `notify`; complete the login on the host. Per the SDK, a session waiting for sign-in reconnects on a later turn once the stored credentials change; restarting the bot also picks them up. Sharing the store does not load personal servers, but it does share authority: every chat that can reach a configured server acts with the logged-in account, not per platform user. Keep tokens out of the bot's `mcp.json` so refreshes do not require editing it.
 
-MCP servers run in the bot process environment, outside the workspace microVM: stdio servers are host processes with the bot's privileges, and HTTP URLs are resolved from the bot process. Server log notifications are appended to `mcpLogPath`.
+MCP servers run in the bot process environment, outside the workspace VM: stdio servers are host processes with the bot's privileges, and HTTP URLs are resolved from the bot process. Server log notifications are appended to `mcpLogPath`.
 
 ### Shared progress (`pi-bot-core/progress`)
 
@@ -380,7 +380,7 @@ Caller contract:
 - `readWorkspaceBootstrap(workspace)` returns host-managed headings with `<agents_md>`, `<soul_md>`, `<identity_md>`, and `<user_md>` sections, separated by blank lines. Content is trimmed. Missing, linked, or non-regular files, and a missing or changed workspace path, produce empty sections. `AGENTS.md`, `SOUL.md`, and `IDENTITY.md` are limited to 20,000 Unicode code points and `USER.md` to 4,000; longer content ends with `[host-managed file truncated]`. It throws `WorkspaceBootstrapSecurityError` when `O_NOFOLLOW` is unavailable.
 - Unexpected filesystem errors (for example `EACCES`) are thrown by all three functions.
 - `USER.md` lives at the workspace root and is shared by every chat using that workspace. Files are reread on every call, so edits apply to the next run.
-- Each bot decides where to place these sections in its prompt and how to report errors. Omit the optional visible path for Gondolin: these files are read by the host and are not mounted in the VM.
+- Each bot decides where to place these sections in its prompt and how to report errors. Omit the optional visible path for the VM sandbox: these files are read by the host and are not mounted in the VM.
 
 Limitations: the checks compare each path component's device and inode before and after operations and open files with `O_NOFOLLOW`, but they are not atomic. A process that can modify the workspace or its parents can still race the checks. This reduces accidental or casual symlink escapes; it is not a filesystem sandbox.
 
@@ -389,7 +389,7 @@ Limitations: the checks compare each path component's device and inode before an
 ```ts
 import { createBashTool, createReadTool } from "pi-bot-core";
 
-// Use the active Gondolin turn from the setup above.
+// Use the active VM sandbox turn from the setup above.
 const tools = [createBashTool(turn), createReadTool(turn)];
 ```
 
@@ -403,7 +403,7 @@ import {
   createScheduleTool,
 } from "pi-bot-core";
 
-// Use the active Gondolin turn. uploadAttachment is the bot's platform uploader.
+// Use the active VM sandbox turn. uploadAttachment is the bot's platform uploader.
 const attach = createAttachTool();
 attach.setUploader(async (path, { label, fileName }) => {
   const bytes = await turn.readAttachment(path);
@@ -428,11 +428,11 @@ try {
 
 What this package owns:
 
-- The `Executor` interface, Gondolin startup validation, and the VM lifecycle for each turn
+- The `Executor` interface, VM sandbox startup validation, and the VM lifecycle for each turn
 
 What each bot repo owns:
 
-- Validating Gondolin at startup, sharing a sandbox instance, and closing each turn on completion or cancellation
+- Validating the VM sandbox at startup, sharing a sandbox instance, and closing each turn on completion or cancellation
 - Wiring attachment uploads through `turn.readAttachment()` and supplying platform prompt details to `buildBaseSystemPrompt()`
 
 ## Runtime requirements
@@ -458,7 +458,7 @@ bun --no-env-file run typecheck
 bun test --no-env-file
 ```
 
-CI runs the real-VM tests on QEMU only. Before running real-VM tests locally, prepare the pinned image by calling `validateGondolinSandbox()` for QEMU or `validateGondolinSandbox({ backend: "krun" })` for krun. On a suitable host, opt in to the krun smoke test with `PI_BOT_TEST_GONDOLIN_KRUN=1 bun test tests/gondolin.test.ts -t 'configured krun turn'`.
+CI runs the real-VM tests on QEMU only. Before running real-VM tests locally, prepare the pinned image by calling `validateVMSandbox()` for QEMU or `validateVMSandbox({ backend: "krun" })` for krun. On a suitable host, opt in to the krun smoke test with `PI_BOT_TEST_VM_SANDBOX_KRUN=1 bun test tests/vm-sandbox.test.ts -t 'configured krun turn'`.
 
 `typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI, as well as the event lifecycle and shared system-prompt tests, the Codemode/MCP tests, the shared progress and SDK progress-integration tests, and their fixtures.
 

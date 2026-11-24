@@ -1,16 +1,16 @@
 import { expect, test } from "bun:test";
-import { createGondolinSecretHooks, normalizeGondolinSecrets } from "../src/gondolin-credential.js";
+import { createSandboxWebSecretHooks, normalizeSandboxWebSecrets } from "../src/sandbox-web-secrets.js";
 
 const interactions = "https://api.example.com/v1/interactions";
 const decisions = "https://api.example.com/v1/decisions";
 const key = "fixture-host-only-key-not-a-real-credential";
 const pat = "fixture-host-only-pat-not-a-real-credential";
 function secretHooks(value = key) {
-	const hooks = createGondolinSecretHooks(normalizeGondolinSecrets({
+	const hooks = createSandboxWebSecretHooks(normalizeSandboxWebSecrets({
 		TEST_API_KEY: { value, hosts: ["API.EXAMPLE.COM"] },
 		GH_TOKEN: { value: pat, hosts: ["api.github.com", "github.com"] },
 	}));
-	if (!hooks?.httpHooks.onRequest) throw new Error("Expected a Gondolin request hook");
+	if (!hooks?.httpHooks.onRequest) throw new Error("Expected a sandbox web secret request hook");
 	return { keyEnv: hooks.env.TEST_API_KEY!, ghEnv: hooks.env.GH_TOKEN!, onRequest: hooks.httpHooks.onRequest };
 }
 
