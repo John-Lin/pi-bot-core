@@ -427,6 +427,8 @@ for (const backend of ["qemu", "krun"] as const) {
 			expect({ code: fifo.exitCode, stderr: fifo.stderr.toString() }).toEqual({ code: 0, stderr: "" });
 		}
 		const turn = openTurn(new VMSandbox(1, { backend }));
+		// Bound file access independently of guest boot, which can be slower under QEMU TCG.
+		expect((await turn.exec("true")).code).toBe(0);
 		for (const mount of ["scratch", "attachments"]) {
 			for (const entry of ["hard.txt", "symbolic/normal.txt", "pipe"]) {
 				const result = await turn.exec(`cat ${mount}/${entry}`, { timeout: 5 });
