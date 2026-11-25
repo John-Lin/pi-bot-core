@@ -39,13 +39,14 @@ export function inspectWorkspaceEntry(path: string): BigIntStats | undefined {
 /** Verify both the opened file and its identity in the checked workspace path. */
 export function openWorkspaceFile(path: string): { fd: number; size: bigint } {
 	if (!constants.O_NOFOLLOW || !constants.O_NONBLOCK) throw new UnsafeWorkspaceEntry();
-	const expected = inspectWorkspaceEntry(path);
+	const absolute = resolve(path);
+	const expected = inspectWorkspaceEntry(absolute);
 	if (!expected) throw Object.assign(new Error("workspace file does not exist"), { code: "ENOENT" });
 	if (!isPrivateFile(expected)) throw new UnsafeWorkspaceEntry();
-	const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+	const fd = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 	try {
 		const opened = fstatSync(fd, { bigint: true });
-		const current = inspectWorkspaceEntry(path);
+		const current = inspectWorkspaceEntry(absolute);
 		if (!isPrivateFile(opened) || opened.dev !== expected.dev || opened.ino !== expected.ino ||
 			!current || current.dev !== opened.dev || current.ino !== opened.ino) {
 			throw new UnsafeWorkspaceEntry();
