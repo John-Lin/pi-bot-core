@@ -25,7 +25,7 @@ function denyWorkspaceMutation(message: string): never {
 	throw Object.assign(new Error(message), { code: "EACCES", errno: ERRNO.EACCES });
 }
 
-/** Prevent guests from planting links that host skill discovery or downloads could follow. */
+/** Prevent guests from planting links in persistent workspace directories. */
 class WorkspaceContentProvider extends RealFSProvider {
 	private readonly denyLink = () => denyWorkspaceMutation("Links are not allowed in writable content mounts");
 
@@ -277,16 +277,17 @@ export class VMSandboxTurn implements Executor {
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
 		const secretHooks = createSandboxWebSecretHooks(this.secrets);
+		const writableMount = (path: string) => new SandboxVfsProvider(new WorkspaceContentProvider(path), {
+			before: ({ op, path, oldPath, newPath }) => {
+				// Both guest aliases must preserve the host-managed mount directory.
+				if ((path === "/" && (op === "rmdir" || op === "chmod")) ||
+					(op === "rename" && (oldPath === "/" || newPath === "/"))) {
+					denyWorkspaceMutation("Cannot modify the workspace mount root");
+				}
+			},
+		});
 		const contentMount = (path: string) => this.writableWorkspaceContent
-			? new SandboxVfsProvider(new WorkspaceContentProvider(path), {
-				before: ({ op, path, oldPath, newPath }) => {
-					// Both guest aliases must preserve the host-managed mount directory.
-					if ((path === "/" && (op === "rmdir" || op === "chmod")) ||
-						(op === "rename" && (oldPath === "/" || newPath === "/"))) {
-						denyWorkspaceMutation("Cannot modify the workspace mount root");
-					}
-				},
-			})
+			? writableMount(path)
 			: new ReadonlyProvider(new RealFSProvider(path));
 		this.vm = new VM({
 			...vmResources(),
@@ -301,7 +302,7 @@ export class VMSandboxTurn implements Executor {
 							? !["stat", "lstat", "realpath", "readdir", "access"].includes(op)
 							: path !== "/MEMORY.md" || !["open", "stat", "lstat", "realpath", "readdir", "access"].includes(op),
 					}),
-					[`${cwd}/scratch`]: new RealFSProvider(paths.scratchDir),
+					[`${cwd}/scratch`]: writableMount(paths.scratchDir),
 					[`${cwd}/attachments`]: contentMount(paths.attachmentsDir),
 					[`${cwd}/skills`]: contentMount(paths.skillsDir),
 					[`${WORKSPACE_GUEST_ROOT}/skills`]: contentMount(sharedSkills),

@@ -256,7 +256,7 @@ vmTest("persists edits to the original attachment and reloads local and shared s
 
 vmTest("does not let writable mounts plant host-visible filesystem links", async () => {
 	const turn = openTurn(new VMSandbox(1, { writableWorkspaceContent: true }));
-	for (const mount of ["attachments", "skills", "/workspace/skills"]) {
+	for (const mount of ["scratch", "attachments", "skills", "/workspace/skills"]) {
 		const setup = await turn.exec(`touch ${mount}/target`);
 		expect(setup).toEqual({ stdout: "", stderr: "", code: 0 });
 		const symbolic = await turn.exec(`ln -s target ${mount}/symbolic`);
@@ -272,13 +272,15 @@ vmTest("does not let writable mounts plant host-visible filesystem links", async
 vmTest("preserves mounted directories and their modes while allowing changes inside them", async () => {
 	const turn = openTurn(new VMSandbox(1, { writableWorkspaceContent: true }));
 	const mounts = [
+		["/data/workspace/42/scratch", chat.scratchDir],
 		["/data/workspace/42/attachments", chat.attachmentsDir],
 		["/data/workspace/42/skills", chat.skillsDir],
 		["/data/workspace/skills", join(workspace, "skills")],
 	] as const;
 	for (const [guest, host] of mounts) {
 		const mode = statSync(host).mode;
-		const chmod = await turn.exec(`chmod 700 ${guest}`);
+		const differentMode = (mode & 0o777) === 0o700 ? "750" : "700";
+		const chmod = await turn.exec(`chmod ${differentMode} ${guest}`);
 		const rmdir = await turn.exec(`rmdir ${guest}`);
 		// Some mount points are protected by the guest kernel before reaching the provider.
 		expect(chmod.stdout).toBe("");
