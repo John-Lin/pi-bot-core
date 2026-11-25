@@ -107,6 +107,26 @@ krunTest("starts a configured krun turn without a QEMU system emulator", () => {
 	expectSandboxToRun(["qemu-img"], { backend: "krun" }, { GONDOLIN_VMM: "qemu" });
 }, 35_000);
 
+for (const backend of ["qemu", "krun"] as const) {
+	const resourceTest = backend === "qemu" ? vmTest : krunTest;
+	resourceTest(`gives a ${backend} turn the build resource profile`, async () => {
+		const turn = openTurn(new VMSandbox(1, { backend }));
+		const result = await turn.exec(`set -e
+			grep -c '^processor' /proc/cpuinfo
+			awk '/^MemTotal:/ { print $2 }' /proc/meminfo
+			df -kP / | awk 'NR == 2 { print $2 }'`, { timeout: 20 });
+		expect(result.code, result.stderr).toBe(0);
+		expect(result.stderr).toBe("");
+		const [cpus, memoryKiB, rootDiskKiB] = result.stdout.trim().split(/\s+/).map(Number);
+		expect(cpus).toBe(2);
+		// Guest-reported values exclude memory reserved by the kernel and filesystem overhead.
+		expect(memoryKiB).toBeGreaterThan(2304 * 1024);
+		expect(memoryKiB).toBeLessThanOrEqual(2560 * 1024);
+		expect(rootDiskKiB).toBeGreaterThan(7 * 1024 * 1024);
+		expect(rootDiskKiB).toBeLessThanOrEqual(8 * 1024 * 1024);
+	}, 30_000);
+}
+
 test.each(["", "libkrun", null])("rejects an invalid backend from deployment config (%j)", async (backend) => {
 	// @ts-expect-error Simulate config read at runtime without TypeScript validation.
 	expect(() => new VMSandbox(1, { backend })).toThrow(SandboxConfigError);

@@ -320,12 +320,16 @@ describe("EventsWatcher lifecycle ownership", () => {
 		watcher.start();
 		const oldFsWatcher = Reflect.get(watcher, "watcher") as FSWatcher;
 		watcher.stop();
+		const filePath = writeEvent("live.json");
 		watcher.start();
 		const currentFsWatcher = Reflect.get(watcher, "watcher") as FSWatcher;
+		expect(currentFsWatcher).not.toBeNull();
 		oldFsWatcher.emit("error", new Error("late watcher error"));
 		expect(Reflect.get(watcher, "watcher")).toBe(currentFsWatcher);
-		const filePath = writeEvent("live.json");
-		await waitFor(() => !existsSync(filePath));
+		// Exercise lifecycle ownership through the real restart scan, not native notification timing.
+		await settleFiles();
+		await settleDispatches();
+		expect(existsSync(filePath)).toBe(false);
 		expect(readFileSync(join(eventsDir, "dispatch.log"), "utf-8")).toBe("live.json\n");
 		expect(warnings).toEqual([]);
 	});
