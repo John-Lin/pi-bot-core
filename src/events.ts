@@ -87,6 +87,7 @@ const DEBOUNCE_MS = 100;
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 100;
 const MAX_QUEUED = 5;
+const MAX_TIMEOUT_MS = 2_147_483_647;
 const IMMEDIATE_STALE_TOLERANCE_MS = 5 * 60 * 1000;
 
 const consoleLogger: EventsLogger = {
@@ -338,22 +339,35 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 			this.deleteFile(filename);
 			return;
 		}
-		const atTime = new Date(event.at).getTime();
-		const now = Date.now();
-		if (atTime <= now) {
+		const atTime = Date.parse(event.at);
+		if (Number.isNaN(atTime)) {
+			this.log.warn(`One-shot event has an invalid 'at', deleting: ${filename}`);
+			this.deleteFile(filename);
+			return;
+		}
+		const delay = atTime - Date.now();
+		if (delay <= 0) {
 			this.log.info(`One-shot event in the past, deleting: ${filename}`);
 			this.deleteFile(filename);
 			return;
 		}
-		const delay = atTime - now;
 		this.log.info(`Scheduling one-shot event: ${filename} in ${Math.round(delay / 1000)}s`);
-		const timer = setTimeout(() => {
-			if (!this.isActive(generation)) return;
-			this.timers.delete(filename);
-			this.log.info(`Executing one-shot event: ${filename}`);
-			void this.execute(filename, event, generation);
-		}, delay);
-		this.timers.set(filename, timer);
+		// Longer delays overflow the native timer. Recheck the wall-clock deadline at each wakeup.
+		const arm = (remaining: number): void => {
+			const timer = setTimeout(() => {
+				if (!this.isActive(generation)) return;
+				const untilDeadline = atTime - Date.now();
+				if (untilDeadline > 0) {
+					arm(untilDeadline);
+					return;
+				}
+				this.timers.delete(filename);
+				this.log.info(`Executing one-shot event: ${filename}`);
+				void this.execute(filename, event, generation);
+			}, Math.min(remaining, MAX_TIMEOUT_MS));
+			this.timers.set(filename, timer);
+		};
+		arm(delay);
 	}
 
 	private handlePeriodic(filename: string, event: TEvent, generation: number): void {

@@ -90,6 +90,39 @@ describe("buildEventPayload", () => {
 		});
 	});
 
+	for (const [schedule, timezone] of [
+		["not a cron expression", "Asia/Taipei"],
+		["0 9 * * *", "Mars/Olympus"],
+		["0 9 31 2 *", "Asia/Taipei"],
+		["2099-02-30T00:00:00Z", "UTC"],
+		["2099-03-01T00:00:00Z", "Asia/Taipei"],
+		["0 9 * * *", "+08:00"],
+		["0 9 * * *", "-05:00"],
+		["0 9 * * *", "−05:00"],
+		["0 9 * * *", "−0500"],
+		["0 9 * * *", "−05"],
+	] as const) {
+		test(`periodic: rejects an invalid recurring schedule or timezone (${schedule}, ${timezone})`, () => {
+			expect(() =>
+				buildEventPayload(
+					{ label: "x", type: "periodic", text: "hi", schedule, timezone, routing: { chatId: 1 } },
+					NOW,
+				),
+			).toThrow(/invalid 'schedule' or 'timezone'/);
+		});
+	}
+
+	for (const timezone of ["UTC", "Asia/Taipei", "Etc/GMT+8"]) {
+		test(`periodic: keeps recurring macros and IANA timezone ${timezone}`, () => {
+			const { json } = buildEventPayload(
+				{ label: "x", type: "periodic", text: "hi", schedule: "@daily", timezone, routing: { chatId: 1 } },
+				NOW,
+			);
+			expect(json.schedule).toBe("@daily");
+			expect(json.timezone).toBe(timezone);
+		});
+	}
+
 	test("periodic: missing schedule rejected", () => {
 		expect(() =>
 			buildEventPayload(
