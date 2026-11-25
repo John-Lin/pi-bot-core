@@ -1,10 +1,14 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { closeSync, readdirSync, readSync, writeFileSync } from "fs";
 import { join } from "path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { ensureWorkspaceDirectoriesAreSafe, WorkspaceBootstrapSecurityError } from "./workspace-bootstrap.js";
+import { inspectWorkspaceEntry, openWorkspaceFile, UnsafeWorkspaceEntry } from "./workspace-files.js";
 
 const MEMORY_FILE = "MEMORY.md";
 const SKILLS_DIR = "skills";
+const MAX_MEMORY_BYTES = 80_000;
+const MAX_SKILL_METADATA_BYTES = 1024 * 1024;
+const SKILL_IGNORE_FILES = [".gitignore", ".ignore", ".fdignore"];
 
 export interface ChatPaths {
 	workspace: string;
@@ -73,8 +77,51 @@ export function readMemory(paths: ChatPaths): string {
 }
 
 function tryRead(path: string): string {
-	if (!existsSync(path)) return "";
-	return readFileSync(path, "utf8").trim();
+	let fd: number | undefined;
+	try {
+		({ fd } = openWorkspaceFile(path));
+		const buffer = Buffer.alloc(MAX_MEMORY_BYTES + 1);
+		let length = 0;
+		while (length < buffer.length) {
+			const count = readSync(fd, buffer, length, buffer.length - length, length);
+			if (count === 0) break;
+			length += count;
+		}
+		const content = buffer.toString("utf8", 0, Math.min(length, MAX_MEMORY_BYTES)).trim();
+		return length > MAX_MEMORY_BYTES ? `${content}\n[truncated: MEMORY.md exceeds the prompt limit]` : content;
+	} catch (error) {
+		if (error instanceof UnsafeWorkspaceEntry || ["ENOENT", "ENOTDIR", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "")) return "";
+		throw error;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+	}
+}
+
+function isSafeSkillScope(dir: string): boolean {
+	try {
+		if (!inspectWorkspaceEntry(dir)?.isDirectory()) return false;
+		const directories = [dir];
+		while (directories.length > 0) {
+			const current = directories.pop()!;
+			// Pi probes these exact paths, including on case-insensitive filesystems.
+			for (const name of SKILL_IGNORE_FILES) {
+				const entry = inspectWorkspaceEntry(join(current, name));
+				if (entry && (!entry.isFile() || entry.size > BigInt(MAX_SKILL_METADATA_BYTES))) return false;
+			}
+			for (const name of readdirSync(current)) {
+				if (name.startsWith(".") || name === "node_modules") continue;
+				const path = join(current, name);
+				const entry = inspectWorkspaceEntry(path);
+				if (!entry) continue;
+				if (entry.isDirectory()) directories.push(path);
+				else if (name.endsWith(".md") && entry.size > BigInt(MAX_SKILL_METADATA_BYTES)) return false;
+			}
+		}
+		return true;
+	} catch (error) {
+		if (["ENOENT", "ENOTDIR", "ELOOP", "EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+		throw error;
+	}
 }
 
 /**
@@ -95,12 +142,10 @@ export function loadChatSkills(paths: ChatPaths, guestWorkspace?: string): Skill
 		baseDir: translate(s.baseDir),
 	});
 
-	const globalSkillsDir = join(paths.workspace, SKILLS_DIR);
-	for (const s of loadSkillsFromDir({ dir: globalSkillsDir, source: "workspace" }).skills) {
-		map.set(s.name, apply(s));
-	}
-	for (const s of loadSkillsFromDir({ dir: paths.skillsDir, source: "chat" }).skills) {
-		map.set(s.name, apply(s));
+	for (const [dir, source] of [[join(paths.workspace, SKILLS_DIR), "workspace"], [paths.skillsDir, "chat"]] as const) {
+		// Pi reads the files by path; validate the scope before passing it to the loader.
+		if (!isSafeSkillScope(dir)) continue;
+		for (const s of loadSkillsFromDir({ dir, source }).skills) map.set(s.name, apply(s));
 	}
 	return Array.from(map.values());
 }

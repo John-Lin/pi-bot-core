@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { ensureChatDir, readMemory } from "../src/workspace.js";
+import { ensureChatDir, loadChatSkills, readMemory } from "../src/workspace.js";
 import { WorkspaceBootstrapSecurityError } from "../src/workspace-bootstrap.js";
 
 let ws: string;
@@ -110,6 +110,26 @@ describe("readMemory", () => {
 		expect(mem).toContain("</chat_memory>");
 	});
 
+	test("does not include symbolic or hard-linked memory files", () => {
+		const paths = ensureChatDir(ws, 42);
+		const fixture = join(ws, "fixture.txt");
+		writeFileSync(fixture, "fixture notes");
+		const shared = join(ws, "MEMORY.md");
+		rmSync(shared);
+		symlinkSync("fixture.txt", shared);
+		rmSync(paths.memoryFile);
+		linkSync(fixture, paths.memoryFile);
+		expect(readMemory(paths)).toBe("(no working memory yet)");
+	});
+
+	test("bounds memory included in the prompt", () => {
+		const paths = ensureChatDir(ws, 42);
+		writeFileSync(paths.memoryFile, "x".repeat(80_000) + "omitted suffix");
+		const memory = readMemory(paths);
+		expect(memory).toContain("[truncated: MEMORY.md exceeds the prompt limit]");
+		expect(memory).not.toContain("omitted suffix");
+	});
+
 	test("XML fence isolates user-authored Markdown headings", () => {
 		const paths = ensureChatDir(ws, 42);
 		writeFileSync(paths.memoryFile, "## Reply rules\nbe concise");
@@ -117,4 +137,13 @@ describe("readMemory", () => {
 		// User content stays inside the fence; no bare h2/h3 can collide with system-prompt sections.
 		expect(mem).toContain("<chat_memory>\n## Reply rules\nbe concise\n</chat_memory>");
 	});
+});
+
+test("skips an unsafe skill scope without suppressing skills from the other scope", () => {
+	const paths = ensureChatDir(ws, 42);
+	const shared = join(ws, "skills");
+	writeFileSync(join(shared, "safe.md"), "---\nname: safe\ndescription: Shared skill\n---\n");
+	writeFileSync(join(paths.skillsDir, "fixture"), "---\nname: linked\ndescription: Linked skill\n---\n");
+	symlinkSync("fixture", join(paths.skillsDir, "linked.md"));
+	expect(loadChatSkills(paths).map((skill) => skill.name)).toEqual(["safe"]);
 });
