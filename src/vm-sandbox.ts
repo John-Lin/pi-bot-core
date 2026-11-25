@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { lstatSync } from "node:fs";
+import { closeSync, createReadStream, lstatSync } from "node:fs";
 import { basename, join, posix } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxV
 import { createSandboxWebSecretHooks, normalizeSandboxWebSecrets, type ActiveSandboxWebSecret, type SandboxWebSecret } from "./sandbox-web-secrets.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
+import { inspectWorkspaceEntry, openWorkspaceFile, UnsafeWorkspaceEntry } from "./workspace-files.js";
 import type { ChatPaths } from "./workspace.js";
 
 export type { SandboxWebSecret } from "./sandbox-web-secrets.js";
@@ -18,6 +19,7 @@ export const WORKSPACE_GUEST_ROOT = "/workspace";
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const VM_START_TIMEOUT_MS = 15_000;
 const IMAGE_PREPARE_TIMEOUT_MS = 120_000;
+const WORKSPACE_CLEANUP_FAILURE = "Workspace VM cleanup failed; the bot must be restarted before starting another turn.";
 const runFile = promisify(execFile);
 type FinishSlot = (failure?: Error) => void;
 
@@ -25,14 +27,62 @@ function denyWorkspaceMutation(message: string): never {
 	throw Object.assign(new Error(message), { code: "EACCES", errno: ERRNO.EACCES });
 }
 
-/** Prevent guests from planting links in persistent workspace directories. */
+/** Keep guest mounts limited to ordinary directories and single-link files. */
 class WorkspaceContentProvider extends RealFSProvider {
-	private readonly denyLink = () => denyWorkspaceMutation("Links are not allowed in writable content mounts");
+	constructor(private readonly mountDir: string) {
+		super(mountDir);
+	}
+
+	checkEntry(path: string): void {
+		inspectWorkspaceEntry(join(this.mountDir, posix.normalize(`/${path}`).slice(1)));
+	}
+
+	private readonly denyLink = () => denyWorkspaceMutation("Links are not allowed in workspace mounts");
 
 	override symlinkSync = this.denyLink;
 	override linkSync = this.denyLink;
+	override readlinkSync = this.denyLink;
 	override symlink = async () => this.denyLink();
 	override link = this.symlink;
+	override readlink = this.symlink;
+
+	override realpath = async (path: string, options?: object): Promise<string> => {
+		this.checkEntry(path);
+		return super.realpath(path, options);
+	};
+
+	override realpathSync = (path: string, options?: object): string => {
+		this.checkEntry(path);
+		return super.realpathSync(path, options);
+	};
+
+	override access = async (path: string, mode?: number): Promise<void> => {
+		this.checkEntry(path);
+		return super.access(path, mode);
+	};
+
+	override accessSync = (path: string, mode?: number): void => {
+		this.checkEntry(path);
+		super.accessSync(path, mode);
+	};
+}
+
+function workspaceMount(mountDir: string, writable: boolean) {
+	const content = new WorkspaceContentProvider(mountDir);
+	return new SandboxVfsProvider(writable ? content : new ReadonlyProvider(content), {
+		before: ({ op, path, oldPath, newPath }) => {
+			if ((path === "/" && (op === "rmdir" || op === "chmod")) ||
+				(op === "rename" && (oldPath === "/" || newPath === "/"))) {
+				denyWorkspaceMutation("Cannot modify the workspace mount root");
+			}
+			if (oldPath !== undefined) content.checkEntry(oldPath);
+			if (newPath !== undefined) content.checkEntry(newPath);
+			// Do not re-resolve paths during reads, writes, or release of open handles.
+			if (path !== undefined && ["open", "stat", "lstat", "readdir", "mkdir", "rmdir", "unlink", "chmod", "truncate", "statfs"].includes(op)) {
+				content.checkEntry(path);
+			}
+		},
+	});
 }
 
 export type VMSandboxBackend = "qemu" | "krun";
@@ -191,6 +241,7 @@ export class VMSandboxTurn implements Executor {
 		const timer = timeout && Number.isFinite(timeout) && timeout > 0
 			? AbortSignal.timeout(Math.min(2_147_483_647, Math.ceil(timeout * 1000)))
 			: undefined;
+		const signal = timer && options?.signal ? AbortSignal.any([timer, options.signal]) : timer ?? options?.signal;
 		try {
 			return await this.use(async (vm, signal) => {
 				const proc = vm.exec(["/bin/sh", "-c", command], {
@@ -200,10 +251,11 @@ export class VMSandboxTurn implements Executor {
 					proc, readBounded(proc.stdout!), readBounded(proc.stderr!),
 				]);
 				return { stdout: stdout.toString(), stderr: stderr.toString(), code: result.exitCode };
-			}, timer && options?.signal ? AbortSignal.any([timer, options.signal]) : timer ?? options?.signal);
+			}, signal);
 		} catch (error) {
-			if (options?.signal?.aborted) throw new Error("Command aborted", { cause: error });
-			if (timer?.aborted) throw new Error(`Command timed out after ${timeout} seconds`, { cause: error });
+			if (error instanceof WorkspaceCleanupError) throw error;
+			if (timer?.aborted && signal?.reason === timer.reason) throw new Error(`Command timed out after ${timeout} seconds`, { cause: error });
+			if (signal?.aborted) throw new Error("Command aborted", { cause: error });
 			throw error;
 		}
 	}
@@ -214,17 +266,28 @@ export class VMSandboxTurn implements Executor {
 		return path;
 	}
 
-	/** Export guest bytes, never a path the caller would open in the bot's filesystem. */
+	/** Export bytes from one of this turn's two attachment-capable mounts. */
 	async readAttachment(path: string, signal?: AbortSignal): Promise<Buffer> {
-		const normalized = posix.normalize(path);
-		if (path !== normalized || !["scratch", "attachments"].some((dir) => path.startsWith(`${this.cwd}/${dir}/`))) {
+		const mounts = [["scratch", this.paths.scratchDir], ["attachments", this.paths.attachmentsDir]] as const;
+		const mount = mounts.find(([dir]) => path.startsWith(`${this.cwd}/${dir}/`));
+		if (!mount || path !== posix.normalize(path) || path.endsWith("/") || path.includes("\0")) {
 			throw new Error("attach: use a file in this chat's scratch or attachments directory");
 		}
-		return this.use(async (vm, abort) => {
-			const stat = await vm.fs.stat(path, { signal: abort });
-			if (!stat.isFile()) throw new Error("attach: expected a regular file");
-			if (stat.size > MAX_BUFFER_BYTES) throw new Error("attach: maximum file size is 10 MiB");
-			return readBounded(await vm.fs.readFileStream(path, { signal: abort }));
+		const file = join(mount[1], path.slice(`${this.cwd}/${mount[0]}/`.length));
+		return this.use(async (_vm, abort) => {
+			let opened: ReturnType<typeof openWorkspaceFile>;
+			try {
+				opened = openWorkspaceFile(file);
+			} catch (error) {
+				if (error instanceof UnsafeWorkspaceEntry) throw error;
+				throw new Error("attach: could not open the workspace file", { cause: error });
+			}
+			if (opened.size > BigInt(MAX_BUFFER_BYTES)) {
+				closeSync(opened.fd);
+				throw new Error("attach: maximum file size is 10 MiB");
+			}
+			// The stream owns the descriptor; a concurrent append cannot bypass the byte limit.
+			return readBounded(createReadStream(file, { fd: opened.fd, start: 0, end: MAX_BUFFER_BYTES, signal: abort }));
 		}, signal);
 	}
 
@@ -237,7 +300,7 @@ export class VMSandboxTurn implements Executor {
 		try {
 			await this.vm?.close();
 		} catch (cause) {
-			this.finishSlot?.(new Error("Workspace VM cleanup failed; the bot must be restarted before starting another turn.", { cause }));
+			this.finishSlot?.(new Error(WORKSPACE_CLEANUP_FAILURE, { cause }));
 			throw cause;
 		}
 		await this.starting?.catch(() => {});
@@ -257,7 +320,13 @@ export class VMSandboxTurn implements Executor {
 			return await run(vm, abort);
 		} catch (error) {
 			// Stopping an SDK exec is not a guarantee that its guest process has stopped.
-			if (abort.aborted || !vm || error instanceof OutputLimitError) await this.close();
+			if (abort.aborted || !vm || error instanceof OutputLimitError) {
+				try {
+					await this.close();
+				} catch (cleanupError) {
+					throw new WorkspaceCleanupError([error, cleanupError], WORKSPACE_CLEANUP_FAILURE);
+				}
+			}
 			throw error;
 		} finally {
 			signal?.removeEventListener("abort", onAbort);
@@ -277,18 +346,7 @@ export class VMSandboxTurn implements Executor {
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
 		const secretHooks = createSandboxWebSecretHooks(this.secrets);
-		const writableMount = (path: string) => new SandboxVfsProvider(new WorkspaceContentProvider(path), {
-			before: ({ op, path, oldPath, newPath }) => {
-				// Both guest aliases must preserve the host-managed mount directory.
-				if ((path === "/" && (op === "rmdir" || op === "chmod")) ||
-					(op === "rename" && (oldPath === "/" || newPath === "/"))) {
-					denyWorkspaceMutation("Cannot modify the workspace mount root");
-				}
-			},
-		});
-		const contentMount = (path: string) => this.writableWorkspaceContent
-			? writableMount(path)
-			: new ReadonlyProvider(new RealFSProvider(path));
+		const contentMount = (path: string) => workspaceMount(path, this.writableWorkspaceContent);
 		this.vm = new VM({
 			...vmResources(),
 			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks: secretHooks?.httpHooks, allowWebSockets: false },
@@ -296,13 +354,13 @@ export class VMSandboxTurn implements Executor {
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 			vfs: {
 				mounts: {
-					[cwd]: new ShadowProvider(new RealFSProvider(paths.chatDir), {
+					[cwd]: new ShadowProvider(workspaceMount(paths.chatDir, true), {
 						// MEMORY.md is the only projected file; preserve its identity for host reads.
 						shouldShadow: ({ path, op }) => path === "/"
 							? !["stat", "lstat", "realpath", "readdir", "access"].includes(op)
 							: path !== "/MEMORY.md" || !["open", "stat", "lstat", "realpath", "readdir", "access"].includes(op),
 					}),
-					[`${cwd}/scratch`]: writableMount(paths.scratchDir),
+					[`${cwd}/scratch`]: workspaceMount(paths.scratchDir, true),
 					[`${cwd}/attachments`]: contentMount(paths.attachmentsDir),
 					[`${cwd}/skills`]: contentMount(paths.skillsDir),
 					[`${WORKSPACE_GUEST_ROOT}/skills`]: contentMount(sharedSkills),
@@ -316,6 +374,7 @@ export class VMSandboxTurn implements Executor {
 }
 
 class OutputLimitError extends Error {}
+class WorkspaceCleanupError extends AggregateError {}
 
 async function readBounded(stream: Readable): Promise<Buffer> {
 	const chunks: Buffer[] = [];
