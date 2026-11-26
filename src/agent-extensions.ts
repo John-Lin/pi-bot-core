@@ -250,7 +250,7 @@ function sdkServerConfig(config: BotMcpServer["config"]): McpServerConfig {
 	};
 	if ("url" in transport) {
 		const { type, ...http } = transport;
-		return { ...http, ...exposures, ...(type !== undefined && { type: "http" }) };
+		return { ...http, ...exposures, ...(type !== undefined && { type: type === "streamable-http" ? "http" : type }) };
 	}
 	return { ...transport, ...exposures };
 }

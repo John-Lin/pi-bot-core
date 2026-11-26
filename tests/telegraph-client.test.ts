@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from "bun:test";
 import { createAccount, createPage, editPage, getPage, getPages } from "../src/telegraph/client.js";
+import type { Page } from "../src/telegraph/types.js";
 
 interface CapturedRequest {
 	url: string;
@@ -58,6 +59,7 @@ describe("createAccount", () => {
 		expect(captured?.headers["Content-Type"]).toBe("application/json");
 		expect(captured?.body).toEqual({ short_name: "n", author_name: "a" });
 		expect(result.access_token).toBe("tok");
+		expectTypeOf(result.auth_url).toEqualTypeOf<string | undefined>();
 	});
 });
 
@@ -126,7 +128,8 @@ describe("getPage", () => {
 			},
 		};
 
-		await getPage("Foo-12-31");
+		const result = await getPage("Foo-12-31");
+		expectTypeOf(result).toEqualTypeOf<Page<true>>();
 
 		expect(captured?.url).toBe("https://api.telegra.ph/getPage");
 		expect(captured?.body).toEqual({ path: "Foo-12-31", return_content: true });
@@ -144,7 +147,8 @@ describe("getPage", () => {
 		nextResponse = {
 			body: { ok: true, result: { path: "p", url: "u", title: "t", description: "", views: 0 } },
 		};
-		await getPage("p", false);
+		const result = await getPage("p", false);
+		expectTypeOf(result).toEqualTypeOf<Page>();
 		expect(captured?.body).toEqual({ path: "p", return_content: false });
 	});
 });

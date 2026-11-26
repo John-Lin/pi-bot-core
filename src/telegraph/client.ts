@@ -64,7 +64,7 @@ export function editPage(args: {
 }
 
 export function getPage(path: string, return_content?: true): Promise<Page<true>>;
-export function getPage(path: string, return_content: boolean): Promise<Page>;
+export function getPage(path: string, return_content?: boolean): Promise<Page>;
 export function getPage(path: string, return_content = true): Promise<Page> {
 	const body = { path, return_content };
 	return return_content
