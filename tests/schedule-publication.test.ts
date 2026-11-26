@@ -26,6 +26,22 @@ describe("schedule_event publication", () => {
 		}
 	});
 
+	test("honors a caller-supplied SDK schema without a label", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "pi-bot-event-no-label-"));
+		try {
+			const tool = createScheduleTool({
+				workspace,
+				parameters: obj({ type: lit("immediate"), text: str() }),
+				description: "Schedule an immediate event",
+				buildRouting: () => ({ chatId: 123 }),
+			});
+			const result = await tool.execute("schedule", { type: "immediate", text: "hi" });
+			expect(JSON.parse(readFileSync(result.details.path, "utf8"))).toEqual({ type: "immediate", chatId: 123, text: "hi" });
+		} finally {
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
+
 	// Darwin's 1024-byte path limit exposes temp names appended to a valid final path.
 	(process.platform === "darwin" ? test : test.skip)("publishes an event near the filesystem path limit", async () => {
 		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-bot-event-long-path-")));

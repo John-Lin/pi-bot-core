@@ -8,15 +8,7 @@ import { compile, obj, oneOf, opt, str, type Schema, type Static } from "@earend
 const scheduleEventType = oneOf(["immediate", "one-shot", "periodic"]);
 export type ScheduleEventType = Static<typeof scheduleEventType>;
 
-/**
- * Platform-agnostic fields every scheduled event carries.
- *
- * Each bot composes its own pi-schema parameters schema (chatId/channelId,
- * threadId, etc.) and projects validated args onto this shape via
- * {@link CreateScheduleToolConfig.buildRouting} + the common fields below.
- */
-const commonScheduleSchema = obj({
-	label: str(),
+const scheduleFieldsSchema = obj({
 	type: scheduleEventType,
 	text: str(),
 	at: opt(str()),
@@ -25,44 +17,50 @@ const commonScheduleSchema = obj({
 	name: opt(str()),
 }, { open: true });
 
-export type CommonScheduleArgs = Static<typeof commonScheduleSchema>;
+type ScheduleFields = Static<typeof scheduleFieldsSchema>;
 
-const commonSchedule = compile(commonScheduleSchema);
+/** Platform-agnostic arguments for building an event payload directly. */
+export interface CommonScheduleArgs extends ScheduleFields {
+	label: string;
+}
+
+const scheduleFields = compile(scheduleFieldsSchema);
 
 type ScheduleTiming =
 	| { type: "immediate" }
 	| { type: "one-shot"; at: string }
 	| { type: "periodic"; schedule: string; timezone: string };
 
-type ScheduledEventPayload = ScheduleTiming & { text: string } & Record<string, unknown>;
-
 const SLUG_RE = /^[a-z0-9-]{1,40}$/;
-const RESERVED_ROUTING_FIELDS = ["type", "text", "at", "schedule", "timezone"];
 
 /**
  * Build an event JSON payload + filename from validated common fields plus
  * per-platform routing fields (e.g. `{ channelId }` or `{ chatId, threadId? }`)
- * merged into the output JSON without overriding event fields.
+ * merged into the output JSON.
  */
 export function buildEventPayload(
 	args: CommonScheduleArgs & { routing: Record<string, unknown> },
 	now: number = Date.now(),
-): { filename: string; json: ScheduledEventPayload } {
+): { filename: string; json: Record<string, unknown> } {
+	const { filename, json } = composeSchedule(args, now);
+	return { filename, json };
+}
+
+function composeSchedule(args: ScheduleFields & { routing: Record<string, unknown> }, now: number) {
 	const timing = parseScheduleTiming(args, now);
 	const slug = args.name ?? timing.type;
 	if (!SLUG_RE.test(slug)) {
 		throw new Error(`schedule_event: 'name' must match /^[a-z0-9-]{1,40}$/, got: ${slug}`);
 	}
-	for (const field of RESERVED_ROUTING_FIELDS) {
-		if (Object.hasOwn(args.routing, field)) throw new Error(`schedule_event: reserved routing field '${field}'`);
-	}
+	const { type, ...schedule } = timing;
 	return {
 		filename: `${slug}-${now}.json`,
-		json: { ...args.routing, ...timing, text: args.text },
+		json: { type, ...args.routing, text: args.text, ...schedule },
+		timing,
 	};
 }
 
-function parseScheduleTiming({ type, at, schedule, timezone }: CommonScheduleArgs, now: number): ScheduleTiming {
+function parseScheduleTiming({ type, at, schedule, timezone }: ScheduleFields, now: number): ScheduleTiming {
 	switch (type) {
 		case "one-shot": {
 			if (!at) throw new Error("schedule_event: 'at' is required for type='one-shot'");
@@ -141,14 +139,14 @@ export function createScheduleTool<TParams extends Schema>(
 		execute: async (_toolCallId, args, signal) => {
 			signal?.throwIfAborted();
 
-			if (!commonSchedule.check(args)) {
-				const issues = commonSchedule.errors(args).map(({ path, message }) => `${path || "/"}: ${message}`);
+			if (!scheduleFields.check(args)) {
+				const issues = scheduleFields.errors(args).map(({ path, message }) => `${path || "/"}: ${message}`);
 				throw new Error(`schedule_event: invalid arguments: ${issues.join("; ")}`);
 			}
-			const { filename, json } = buildEventPayload({
+			const { filename, json, timing } = composeSchedule({
 				...args,
 				routing: config.buildRouting(args),
-			});
+			}, Date.now());
 
 			mkdirSync(eventsDir, { recursive: true });
 			const fullPath = join(eventsDir, filename);
@@ -167,20 +165,20 @@ export function createScheduleTool<TParams extends Schema>(
 			}
 
 			const summary =
-				json.type === "one-shot"
-					? `at ${json.at}`
-					: json.type === "periodic"
-						? `${json.schedule} (${json.timezone})`
+				timing.type === "one-shot"
+					? `at ${timing.at}`
+					: timing.type === "periodic"
+						? `${timing.schedule} (${timing.timezone})`
 						: "immediate";
 
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Scheduled ${json.type} event: ${filename} (${summary})`,
+						text: `Scheduled ${timing.type} event: ${filename} (${summary})`,
 					},
 				],
-				details: { filename, path: fullPath, type: json.type },
+				details: { filename, path: fullPath, type: timing.type },
 			};
 		},
 	};
