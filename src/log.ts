@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { terminalOutput } from "./terminal-output.js";
 
 /**
  * Platform-agnostic logger factory.
@@ -109,7 +110,7 @@ function formatTokens(count: number): string {
 
 export function createLogger<TLogContext>(opts: LoggerOptions<TLogContext>): Logger<TLogContext> {
 	const formatContext = opts.formatContext;
-	const writeLine = opts.writeLine ?? ((line) => { process.stdout.write(`${line}\n`); });
+	const writeLine = opts.writeLine ?? ((line) => terminalOutput.log(line));
 	const bold = opts.formatBold ?? ((t: string) => `**${t}**`);
 
 	const logUserMessage: Logger<TLogContext>["logUserMessage"] = (ctx, text) => {

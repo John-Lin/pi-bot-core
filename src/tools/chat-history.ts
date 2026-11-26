@@ -69,10 +69,7 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 				if (Number.isNaN(ms)) continue;
 				if (after !== undefined && ms < after) continue;
 				if (before !== undefined && ms > before) continue;
-				if (query) {
-					const speaker = row.user === "bot" ? "assistant" : (row.displayName ?? row.userName ?? row.user);
-					if (!`${speaker}\n${row.text}`.toLowerCase().includes(query)) continue;
-				}
+				if (query && !`${row.speaker}\n${row.text}`.toLowerCase().includes(query)) continue;
 				matches.push(row);
 			}
 
@@ -119,9 +116,5 @@ function readLastByTs(logFilePath: string): Map<string, MessageLogEntry> {
 }
 
 function formatRow(row: HistoryMessage): string {
-	if (row.user === "bot") {
-		return `- [${row.date}] assistant: ${row.text}`;
-	}
-	const speaker = row.displayName ?? row.userName ?? row.user;
-	return `- [${row.date}] ${speaker}: ${row.text}`;
+	return `- [${row.date}] ${row.speaker}: ${row.text}`;
 }

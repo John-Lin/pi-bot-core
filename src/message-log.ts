@@ -79,6 +79,7 @@ const cursor = compile(obj({ ts: messageId }, { open: true }));
 const deletion = compile(obj({ ts: messageId, isDeleted: lit(true) }, { open: true }));
 const historyMessageSchema = obj({
 	...messageFields,
+	user: opt(nullable(str())),
 	userName: opt(nullable(str())),
 	displayName: opt(nullable(str())),
 	isDeleted: opt(nullable(bool())),
@@ -87,7 +88,7 @@ const historyMessage = compile(historyMessageSchema);
 
 export type MessageLogEntry =
 	| { kind: "deleted"; ts: string }
-	| ({ kind: "message" } & Omit<Static<typeof historyMessageSchema>, "isDeleted">);
+	| ({ kind: "message"; speaker: string } & Pick<Static<typeof historyMessageSchema>, "ts" | "date" | "text">);
 
 function parseLogRow(line: string): unknown {
 	try {
@@ -102,8 +103,10 @@ export function parseMessageLogEntry(line: string): MessageLogEntry | undefined 
 	const row = parseLogRow(line);
 	if (deletion.check(row)) return { kind: "deleted", ts: row.ts };
 	if (!historyMessage.check(row)) return undefined;
-	const { isDeleted: _, ...message } = row;
-	return { ...message, kind: "message" };
+	const { ts, date, text, user, userName, displayName } = row;
+	const speaker = user === "bot" ? "assistant" : displayName ?? userName ?? user;
+	if (speaker == null) return undefined;
+	return { kind: "message", ts, date, text, speaker };
 }
 
 export interface MessageLogConfig {

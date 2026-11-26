@@ -299,6 +299,14 @@ describe("createChatHistoryTool", () => {
 		expect(result.details).toEqual({ count: 1 });
 	});
 
+	test("finds imported history by display name when the author ID is missing", async () => {
+		const entry = { date: "2026-04-30T10:00:00.000Z", ts: "1", displayName: "Imported User", text: "imported message" };
+		writeFileSync(logPath, `${JSON.stringify(entry)}\n`);
+		const result = await run({ query: "Imported User" });
+		expect(firstToolText(result)).toContain("- [2026-04-30T10:00:00.000Z] Imported User: imported message");
+		expect(result.details).toEqual({ count: 1 });
+	});
+
 	test("honors a valid deletion marker even when its message metadata is corrupt", async () => {
 		const message = row({ date: "2026-04-30T10:00:00.000Z", ts: "1", user: "u", text: "deleted text" });
 		const tombstone = { ...message, isDeleted: true, attachments: null };

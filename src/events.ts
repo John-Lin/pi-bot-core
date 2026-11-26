@@ -4,6 +4,7 @@ import { readFile } from "fs/promises";
 import { basename, join } from "path";
 import { fsErrorCode } from "./fs-errors.js";
 import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "./fs-watch.js";
+import { terminalOutput } from "./terminal-output.js";
 import type { ScheduleEventType } from "./tools/schedule.js";
 
 /**
@@ -99,8 +100,8 @@ function isEventFilename(value: string | null): value is EventFilename {
 }
 
 const terminalLogger: EventsLogger = {
-	info: (msg) => { process.stdout.write(`${msg}\n`); },
-	warn: (msg, detail) => { process.stderr.write(detail ? `${msg}: ${detail}\n` : `${msg}\n`); },
+	info: (msg) => terminalOutput.log(msg),
+	warn: (msg, detail) => terminalOutput.warn(detail ? `${msg}: ${detail}` : msg),
 };
 
 export class EventsWatcher<TEvent extends ScheduledEventCommon> {
