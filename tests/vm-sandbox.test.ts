@@ -402,6 +402,46 @@ vmTest("exports guest bytes from the current chat without accepting host paths",
 	await expect(turn.readAttachment("/workspace/42/scratch/file.txt/..")).rejects.toThrow("this chat's scratch or attachments");
 }, 30_000);
 
+vmTest("exports from the mounted directory even if the caller updates its paths", async () => {
+	const paths = { ...chat };
+	const turn = openTurn(new VMSandbox(1), paths);
+	expect((await turn.exec("printf mounted > scratch/file.txt")).code).toBe(0);
+	const otherDir = join(workspace, "other-scratch");
+	mkdirSync(otherDir);
+	writeFileSync(join(otherDir, "file.txt"), "not mounted");
+	paths.scratchDir = otherDir;
+	await expect(turn.readAttachment("/workspace/42/scratch/file.txt")).resolves.toEqual(Buffer.from("mounted"));
+}, 30_000);
+
+vmTest("checks entries against the original relative mount after a host cwd change", () => {
+	const otherCwd = join(workspace, "other-cwd");
+	mkdirSync(otherCwd);
+	const file = join(chat.scratchDir, "original.txt");
+	writeFileSync(file, "fixture");
+	linkSync(file, join(chat.scratchDir, "linked.txt"));
+	const emulator = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
+	const result = runWithVmCommands(["qemu-img", emulator], `
+		import assert from "node:assert/strict";
+		import { relative } from "node:path";
+		process.chdir(${JSON.stringify(workspace)});
+		const paths = Object.fromEntries(Object.entries(${JSON.stringify(chat)})
+			.map(([key, path]) => [key, relative(process.cwd(), path) || "."]));
+		const turn = new VMSandbox(1).turn(paths);
+		try {
+			assert.equal((await turn.exec("true")).code, 0);
+			process.chdir(${JSON.stringify(otherCwd)});
+			const result = await turn.exec("cat scratch/linked.txt", { timeout: 5 });
+			assert.equal(result.stdout, "");
+			assert.match(result.stderr, /Permission denied/);
+			assert.notEqual(result.code, 0);
+		} finally {
+			await turn.close();
+		}
+	`, {});
+	expect(result.exitCode, result.stderr.toString()).toBe(0);
+	expect(result.stderr.toString()).toBe("");
+}, 35_000);
+
 vmTest("rejects attachments larger than 10 MiB without closing the turn", async () => {
 	const file = join(chat.scratchDir, "limit.bin");
 	writeFileSync(file, "fixture");

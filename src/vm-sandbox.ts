@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, createReadStream, lstatSync } from "node:fs";
-import { basename, join, posix } from "node:path";
+import { basename, join, posix, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -22,6 +22,19 @@ const IMAGE_PREPARE_TIMEOUT_MS = 120_000;
 const WORKSPACE_CLEANUP_FAILURE = "Workspace VM cleanup failed; the bot must be restarted before starting another turn.";
 const runFile = promisify(execFile);
 type FinishSlot = (failure?: Error) => void;
+
+/** Keep the VM's paths independent of the caller's object and working directory. */
+function snapshotTurnPaths(paths: ChatPaths): ChatPaths {
+	return {
+		...paths,
+		workspace: resolve(paths.workspace),
+		chatDir: resolve(paths.chatDir),
+		memoryFile: resolve(paths.memoryFile),
+		scratchDir: resolve(paths.scratchDir),
+		attachmentsDir: resolve(paths.attachmentsDir),
+		skillsDir: resolve(paths.skillsDir),
+	};
+}
 
 function denyWorkspaceMutation(message: string): never {
 	throw Object.assign(new Error(message), { code: "EACCES", errno: ERRNO.EACCES });
@@ -180,12 +193,13 @@ export class VMSandbox {
 	}
 
 	turn(paths: ChatPaths): VMSandboxTurn {
-		for (const path of [paths.chatDir, paths.scratchDir, paths.attachmentsDir, paths.skillsDir, join(paths.workspace, "skills")]) {
+		const snapshot = snapshotTurnPaths(paths);
+		for (const path of [snapshot.chatDir, snapshot.scratchDir, snapshot.attachmentsDir, snapshot.skillsDir, join(snapshot.workspace, "skills")]) {
 			ensureWorkspacePathIsSafe(path);
 		}
-		const memory = lstatSync(paths.memoryFile);
+		const memory = lstatSync(snapshot.memoryFile);
 		if (!memory.isFile() || memory.nlink !== 1) throw new Error("VM sandbox MEMORY.md must be an unlinked regular file");
-		return new VMSandboxTurn(paths, (signal) => this.acquire(signal), this.secrets, this.options.writableWorkspaceContent, this.backend);
+		return new VMSandboxTurn(snapshot, (signal) => this.acquire(signal), this.secrets, this.options.writableWorkspaceContent, this.backend);
 	}
 
 	private async acquire(signal: AbortSignal): Promise<FinishSlot> {
@@ -216,6 +230,7 @@ export class VMSandbox {
 
 export class VMSandboxTurn implements Executor {
 	private readonly lifetime = new AbortController();
+	private readonly paths: ChatPaths;
 	private readonly cwd: string;
 	private starting?: Promise<VM>;
 	private vm?: VM;
@@ -223,13 +238,14 @@ export class VMSandboxTurn implements Executor {
 	private finishSlot?: FinishSlot;
 
 	constructor(
-		private readonly paths: ChatPaths,
+		paths: ChatPaths,
 		private readonly acquire: (signal: AbortSignal) => Promise<FinishSlot>,
 		private readonly secrets: readonly ActiveSandboxWebSecret[] = [],
 		private readonly writableWorkspaceContent = false,
 		private readonly backend: VMSandboxBackend = DEFAULT_BACKEND,
 	) {
-		this.cwd = posix.join(WORKSPACE_GUEST_ROOT, basename(paths.chatDir));
+		this.paths = snapshotTurnPaths(paths);
+		this.cwd = posix.join(WORKSPACE_GUEST_ROOT, basename(this.paths.chatDir));
 	}
 
 	getWorkspacePath(_hostPath: string): string {
