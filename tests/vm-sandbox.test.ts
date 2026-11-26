@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VM } from "@earendil-works/gondolin";
@@ -256,7 +256,7 @@ vmTest("persists edits to the original attachment and reloads local and shared s
 
 vmTest("does not let writable mounts plant host-visible filesystem links", async () => {
 	const turn = openTurn(new VMSandbox(1, { writableWorkspaceContent: true }));
-	for (const mount of ["attachments", "skills", "/workspace/skills"]) {
+	for (const mount of ["scratch", "attachments", "skills", "/workspace/skills"]) {
 		const setup = await turn.exec(`touch ${mount}/target`);
 		expect(setup).toEqual({ stdout: "", stderr: "", code: 0 });
 		const symbolic = await turn.exec(`ln -s target ${mount}/symbolic`);
@@ -272,13 +272,15 @@ vmTest("does not let writable mounts plant host-visible filesystem links", async
 vmTest("preserves mounted directories and their modes while allowing changes inside them", async () => {
 	const turn = openTurn(new VMSandbox(1, { writableWorkspaceContent: true }));
 	const mounts = [
+		["/data/workspace/42/scratch", chat.scratchDir],
 		["/data/workspace/42/attachments", chat.attachmentsDir],
 		["/data/workspace/42/skills", chat.skillsDir],
 		["/data/workspace/skills", join(workspace, "skills")],
 	] as const;
 	for (const [guest, host] of mounts) {
 		const mode = statSync(host).mode;
-		const chmod = await turn.exec(`chmod 700 ${guest}`);
+		const differentMode = (mode & 0o777) === 0o700 ? "750" : "700";
+		const chmod = await turn.exec(`chmod ${differentMode} ${guest}`);
 		const rmdir = await turn.exec(`rmdir ${guest}`);
 		// Some mount points are protected by the guest kernel before reaching the provider.
 		expect(chmod.stdout).toBe("");
@@ -387,7 +389,7 @@ vmTest("reads one line of a large file without stopping the VM", async () => {
 	expect((await turn.exec("echo still-running")).stdout).toBe("still-running\n");
 }, 30_000);
 
-vmTest("exports guest bytes from the current chat without opening host paths", async () => {
+vmTest("exports guest bytes from the current chat without accepting host paths", async () => {
 	const turn = openTurn(new VMSandbox(1));
 	const otherChat = ensureChatDir(workspace, "43");
 	const hostFile = join(otherChat.scratchDir, "file.txt");
@@ -399,6 +401,86 @@ vmTest("exports guest bytes from the current chat without opening host paths", a
 	await expect(turn.readAttachment("/workspace/42/scratch/file.txt")).resolves.toEqual(Buffer.from("report"));
 	await expect(turn.readAttachment("/workspace/42/scratch/file.txt/..")).rejects.toThrow("this chat's scratch or attachments");
 }, 30_000);
+
+vmTest("exports from the mounted directory even if the caller updates its paths", async () => {
+	const paths = { ...chat };
+	const turn = openTurn(new VMSandbox(1), paths);
+	expect((await turn.exec("printf mounted > scratch/file.txt")).code).toBe(0);
+	const otherDir = join(workspace, "other-scratch");
+	mkdirSync(otherDir);
+	writeFileSync(join(otherDir, "file.txt"), "not mounted");
+	paths.scratchDir = otherDir;
+	await expect(turn.readAttachment("/workspace/42/scratch/file.txt")).resolves.toEqual(Buffer.from("mounted"));
+}, 30_000);
+
+vmTest("checks entries against the original relative mount after a host cwd change", () => {
+	const otherCwd = join(workspace, "other-cwd");
+	mkdirSync(otherCwd);
+	const file = join(chat.scratchDir, "original.txt");
+	writeFileSync(file, "fixture");
+	linkSync(file, join(chat.scratchDir, "linked.txt"));
+	const emulator = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
+	const result = runWithVmCommands(["qemu-img", emulator], `
+		import assert from "node:assert/strict";
+		import { relative } from "node:path";
+		process.chdir(${JSON.stringify(workspace)});
+		const paths = Object.fromEntries(Object.entries(${JSON.stringify(chat)})
+			.map(([key, path]) => [key, relative(process.cwd(), path) || "."]));
+		const turn = new VMSandbox(1).turn(paths);
+		try {
+			assert.equal((await turn.exec("true")).code, 0);
+			process.chdir(${JSON.stringify(otherCwd)});
+			const result = await turn.exec("cat scratch/linked.txt", { timeout: 5 });
+			assert.equal(result.stdout, "");
+			assert.match(result.stderr, /Permission denied/);
+			assert.notEqual(result.code, 0);
+		} finally {
+			await turn.close();
+		}
+	`, {});
+	expect(result.exitCode, result.stderr.toString()).toBe(0);
+	expect(result.stderr.toString()).toBe("");
+}, 35_000);
+
+vmTest("rejects attachments larger than 10 MiB without closing the turn", async () => {
+	const file = join(chat.scratchDir, "limit.bin");
+	writeFileSync(file, "fixture");
+	truncateSync(file, 10 * 1024 * 1024);
+	const turn = openTurn(new VMSandbox(1));
+	const path = "/workspace/42/scratch/limit.bin";
+	expect((await turn.readAttachment(path)).length).toBe(10 * 1024 * 1024);
+	truncateSync(file, 10 * 1024 * 1024 + 1);
+	await expect(turn.readAttachment(path)).rejects.toThrow("maximum file size is 10 MiB");
+	expect(await turn.exec("true")).toEqual({ stdout: "", stderr: "", code: 0 });
+}, 30_000);
+
+for (const backend of ["qemu", "krun"] as const) {
+	const sandboxTest = backend === "qemu" ? vmTest : krunTest;
+	sandboxTest(`rejects existing unsafe entries in ${backend} workspace mounts and attachment exports`, async () => {
+		for (const dir of [chat.scratchDir, chat.attachmentsDir]) {
+			writeFileSync(join(dir, "original.txt"), "fixture");
+			linkSync(join(dir, "original.txt"), join(dir, "hard.txt"));
+			mkdirSync(join(dir, "nested"));
+			writeFileSync(join(dir, "nested", "normal.txt"), "report");
+			symlinkSync("nested", join(dir, "symbolic"));
+			const fifo = Bun.spawnSync(["mkfifo", join(dir, "pipe")]);
+			expect({ code: fifo.exitCode, stderr: fifo.stderr.toString() }).toEqual({ code: 0, stderr: "" });
+		}
+		const turn = openTurn(new VMSandbox(1, { backend }));
+		// Bound file access independently of guest boot, which can be slower under QEMU TCG.
+		expect((await turn.exec("true")).code).toBe(0);
+		for (const mount of ["scratch", "attachments"]) {
+			for (const entry of ["hard.txt", "symbolic/normal.txt", "pipe"]) {
+				const result = await turn.exec(`cat ${mount}/${entry}`, { timeout: 5 });
+				expect(result.stdout).toBe("");
+				expect(result.stderr).toContain("Permission denied");
+				expect(result.code).not.toBe(0);
+				await expect(turn.readAttachment(`/workspace/42/${mount}/${entry}`)).rejects.toThrow("unsafe workspace entry");
+			}
+			await expect(turn.readAttachment(`/workspace/42/${mount}/nested/normal.txt`)).resolves.toEqual(Buffer.from("report"));
+		}
+	}, 30_000);
+}
 
 vmTest("reports the workspace output limit when a command exceeds it", async () => {
 	const turn = openTurn(new VMSandbox(1));
