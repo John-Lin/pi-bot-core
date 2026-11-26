@@ -42,8 +42,8 @@ function blockToNode(t: Token): Node | Node[] | null {
 			return { tag: "blockquote", children: blockChildren(t.tokens) };
 		case "list": {
 			const tag = t.ordered ? "ol" : "ul";
-			const children: Node[] = t.items.map((item: Tokens.ListItem) => ({
-				tag: "li" as const,
+			const children = t.items.map((item: Tokens.ListItem): Node => ({
+				tag: "li",
 				children: listItemChildren(item.tokens),
 			}));
 			return { tag, children };

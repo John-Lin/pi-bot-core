@@ -69,6 +69,16 @@ describe("ensureTelegraphAccount", () => {
 		expect(account.short_name).toBe("x");
 	});
 
+	test("rejects malformed stored accounts without disclosing or replacing them", async () => {
+		const path = join(ws, ".telegraph.json");
+		const invalid = JSON.stringify({ access_token: "invalid-token-value", short_name: "account", author_name: 42 });
+		writeFileSync(path, invalid);
+		await expect(ensureTelegraphAccount(ws, { short_name: "bot", author_name: "bot" }))
+			.rejects.toMatchObject({ message: `Invalid Telegraph account ${path}` });
+		expect(readFileSync(path, "utf8")).toBe(invalid);
+		expect(fetchCalls).toBe(0);
+	});
+
 	test("forwards caller-supplied short_name/author_name to createAccount", async () => {
 		nextAccount = { access_token: "t", short_name: "Alice-bot", author_name: "Alice" };
 

@@ -1,3 +1,5 @@
+import { arr, bool, compile, int, obj, oneOf, opt, str, unknown as unknownValue, type Static } from "@earendil-works/pi-schema";
+
 /**
  * Telegraph (telegra.ph) tag whitelist. Anything outside this set is dropped
  * by the API server, so the parser must only emit these tags.
@@ -31,45 +33,58 @@ export const SUPPORTED_TAGS = [
 
 export type SupportedTag = (typeof SUPPORTED_TAGS)[number];
 
-export interface NodeElement {
-	tag: SupportedTag;
-	attrs?: { href?: string; src?: string };
-	children?: Node[];
-}
+const nodeElementSchema = obj({
+	tag: oneOf(SUPPORTED_TAGS),
+	attrs: opt(obj({ href: opt(str()), src: opt(str()) }, { open: true })),
+	children: opt(arr(unknownValue())),
+}, { open: true });
 
+export type NodeElement = Omit<Static<typeof nodeElementSchema>, "children"> & { children?: Node[] };
 export type Node = string | NodeElement;
 
-export interface Account {
-	short_name: string;
-	author_name: string;
-	author_url?: string;
+const nodeElement = compile(nodeElementSchema);
+
+function isNode(value: unknown): value is Node {
+	return typeof value === "string" || (nodeElement.check(value) && (value.children?.every(isNode) ?? true));
 }
 
-export interface AccessToken {
-	access_token: string;
-}
+const accountIdentity = { short_name: str(), author_name: str(), access_token: str({ minLength: 1 }) };
+export const storedAccountSchema = obj(accountIdentity, { open: true });
+export const createdAccountSchema = obj({
+	...accountIdentity,
+	author_url: opt(str()),
+	auth_url: opt(str()),
+}, { open: true });
 
-export interface AuthUrl {
-	auth_url: string;
-}
+export type CreatedAccount = Static<typeof createdAccountSchema>;
+export type Account = Omit<CreatedAccount, "access_token" | "auth_url">;
+export type AccessToken = Pick<CreatedAccount, "access_token">;
+export type AuthUrl = Required<Pick<CreatedAccount, "auth_url">>;
 
-export interface PageCount {
-	page_count: number;
-}
+const pageCount = int({ minimum: 0 });
+export type PageCount = { page_count: Static<typeof pageCount> };
 
-export type Page<T extends boolean = false> = {
-	path: string;
-	url: string;
-	title: string;
-	description: string;
-	author_name?: string;
-	author_url?: string;
-	image_url?: string;
-	views: number;
-	can_edit?: boolean;
-} & (T extends true ? { content: string | Node[] } : Record<never, never>);
+export const pageSchema = obj({
+	path: str(),
+	url: str(),
+	title: str(),
+	description: str(),
+	author_name: opt(str()),
+	author_url: opt(str()),
+	image_url: opt(str()),
+	views: int({ minimum: 0 }),
+	can_edit: opt(bool()),
+}, { open: true });
 
-export interface PageList {
-	total_count: number;
-	pages: Page<false>[];
+export type Page<T extends boolean = false> = Static<typeof pageSchema> &
+	(T extends true ? { content: string | Node[] } : unknown);
+
+export const pageListSchema = obj({ total_count: pageCount, pages: arr(pageSchema) }, { open: true });
+export type PageList = Static<typeof pageListSchema>;
+
+const page = compile(pageSchema);
+
+export function isPageWithContent(value: unknown): value is Page<true> {
+	if (!page.check(value) || !("content" in value)) return false;
+	return typeof value.content === "string" || (Array.isArray(value.content) && value.content.every(isNode));
 }

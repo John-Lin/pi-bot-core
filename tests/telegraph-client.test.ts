@@ -132,6 +132,14 @@ describe("getPage", () => {
 		expect(captured?.body).toEqual({ path: "Foo-12-31", return_content: true });
 	});
 
+	test("rejects malformed nested page content", async () => {
+		nextResponse = { body: { ok: true, result: {
+			path: "p", url: "u", title: "t", description: "", views: 0,
+			content: [{ tag: "p", children: [null] }],
+		} } };
+		await expect(getPage("p")).rejects.toThrow(/getPage.*invalid result/);
+	});
+
 	test("return_content=false is forwarded", async () => {
 		nextResponse = {
 			body: { ok: true, result: { path: "p", url: "u", title: "t", description: "", views: 0 } },
@@ -185,6 +193,16 @@ describe("error handling", () => {
 		await expect(createAccount({ short_name: "", author_name: "a" })).rejects.toThrow(
 			/SHORT_NAME_REQUIRED/,
 		);
+	});
+
+	test("rejects a non-boolean success flag", async () => {
+		nextResponse = { body: { ok: "yes", result: { short_name: "n", author_name: "a", access_token: "tok" } } };
+		await expect(createAccount({ short_name: "n" })).rejects.toThrow(/createAccount.*invalid response/);
+	});
+
+	test("rejects account results without an access token", async () => {
+		nextResponse = { body: { ok: true, result: { short_name: "n", author_name: "a" } } };
+		await expect(createAccount({ short_name: "n" })).rejects.toThrow(/createAccount.*invalid result/);
 	});
 
 	test("API ok=true with no result throws an explicit empty-result error", async () => {

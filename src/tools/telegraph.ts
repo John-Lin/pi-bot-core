@@ -1,27 +1,19 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { readFile } from "fs/promises";
-import { join } from "path";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
-import { ensureTelegraphAccount, type TelegraphAccount } from "../telegraph/account.js";
+import { ensureTelegraphAccount, loadTelegraphAccount, telegraphAccountPath, type TelegraphAccount } from "../telegraph/account.js";
 import { createPage, editPage, getPage, getPages } from "../telegraph/client.js";
 import { parse } from "../telegraph/parser.js";
 import { serialize } from "../telegraph/serializer.js";
 import type { Node } from "../telegraph/types.js";
 
 async function loadAccount(workspace: string): Promise<TelegraphAccount> {
-	const file = join(workspace, ".telegraph.json");
-	try {
-		const text = await readFile(file, "utf8");
-		return JSON.parse(text) as TelegraphAccount;
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-			throw new Error(
-				`No telegraph account found at ${file}. Publish a page first via telegraph_publish, ` +
-					`or copy an existing .telegraph.json into the workspace.`,
-			);
-		}
-		throw err;
-	}
+	const file = telegraphAccountPath(workspace);
+	const account = await loadTelegraphAccount(file);
+	if (account) return account;
+	throw new Error(
+		`No telegraph account found at ${file}. Publish a page first via telegraph_publish, ` +
+				`or copy an existing .telegraph.json into the workspace.`,
+	);
 }
 
 /**
@@ -133,12 +125,7 @@ export function createTelegraphGetTool(): AgentTool<typeof getSchema> {
 
 			const path = extractPath(url_or_path);
 			const page = await getPage(path);
-			// Telegraph types content as `string | Node[]`. In practice the API
-			// returns Node[], but the string branch is part of the contract —
-			// re-parse it through our Markdown pipeline so callers always get
-			// a normalised Markdown string back.
-			const rawContent = page.content ?? [];
-			const nodes: Node[] = typeof rawContent === "string" ? parse(rawContent) : rawContent;
+			const nodes = typeof page.content === "string" ? parse(page.content) : page.content;
 			const md = serialize(nodes);
 
 			const header = `# ${page.title}\n(path: ${page.path}, url: ${page.url}${page.can_edit ? ", editable" : ""})`;
