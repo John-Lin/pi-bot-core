@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
-import { parseMessageLogEntry, type LoggedMessage, type MessageLogEntry } from "../message-log.js";
+import { parseMessageLogEntry, type MessageLogEntry } from "../message-log.js";
+
+type HistoryMessage = Extract<MessageLogEntry, { kind: "message" }>;
 
 const chatHistorySchema = obj({
 	label: str({ description: "Brief description of what you're searching for (shown to user)" }),
@@ -59,7 +61,7 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 
 			const lastByTs = readLastByTs(opts.logFilePath);
 
-			const matches: LoggedMessage[] = [];
+			const matches: HistoryMessage[] = [];
 			for (const row of lastByTs.values()) {
 				if (row.kind === "deleted") continue;
 				if (!row.date) continue;
@@ -116,7 +118,7 @@ function readLastByTs(logFilePath: string): Map<string, MessageLogEntry> {
 	return lastByTs;
 }
 
-function formatRow(row: LoggedMessage): string {
+function formatRow(row: HistoryMessage): string {
 	if (row.user === "bot") {
 		return `- [${row.date}] assistant: ${row.text}`;
 	}

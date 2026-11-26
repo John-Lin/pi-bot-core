@@ -8,8 +8,15 @@ import {
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBotTools } from "../src/index.js";
+import { createBotTools, createChatHistoryTool } from "../src/index.js";
 import { HostExecutor } from "./helpers/host-executor.js";
+
+test("the default tools list accepts another SDK tool", () => {
+	const tools = createBotTools(new HostExecutor());
+	const chatHistory = createChatHistoryTool({ logFilePath: "log.jsonl" });
+	tools.push(chatHistory);
+	expect(tools.at(-1)).toBe(chatHistory);
+});
 
 describe("workspace tools in the Pi agent pipeline", () => {
 	test("returns real tool results with SDK-recorded execution durations", async () => {

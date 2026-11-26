@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "fs";
 import { appendFile } from "fs/promises";
 import { join } from "path";
-import { arr, bool, compile, lit, obj, opt, str, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, compile, lit, nullable, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 
 /**
  * Platform-agnostic message log used by all pi bots (mom/Slack, Telegram,
@@ -39,16 +39,20 @@ const attachmentSchema = obj({
 }, { open: true });
 
 const messageId = str({ minLength: 1 });
-const loggedMessageSchema = obj({
+const messageFields = {
 	/** ISO 8601. Auto-filled with current time when caller leaves it empty. */
 	date: str(),
 	/** Platform-native message id (Slack ts, Telegram message_id, Discord snowflake). */
 	ts: messageId,
 	/** Platform user id, or `"bot"` for the bot's own replies. */
 	user: str(),
+	text: str(),
+};
+
+const loggedMessageSchema = obj({
+	...messageFields,
 	userName: opt(str()),
 	displayName: opt(str()),
-	text: str(),
 	attachments: arr(attachmentSchema),
 	isBot: bool(),
 	/**
@@ -70,23 +74,34 @@ const loggedMessageSchema = obj({
 export type Attachment = Static<typeof attachmentSchema>;
 export type LoggedMessage = Static<typeof loggedMessageSchema>;
 
-const loggedMessage = compile(loggedMessageSchema);
+// Readers validate their own projection so unrelated metadata cannot hide a message or invalidate a cursor.
+const cursor = compile(obj({ ts: messageId }, { open: true }));
 const deletion = compile(obj({ ts: messageId, isDeleted: lit(true) }, { open: true }));
+const historyMessageSchema = obj({
+	...messageFields,
+	userName: opt(nullable(str())),
+	displayName: opt(nullable(str())),
+	isDeleted: opt(nullable(bool())),
+}, { open: true });
+const historyMessage = compile(historyMessageSchema);
 
 export type MessageLogEntry =
 	| { kind: "deleted"; ts: string }
-	| ({ kind: "message" } & Omit<LoggedMessage, "isDeleted">);
+	| ({ kind: "message" } & Omit<Static<typeof historyMessageSchema>, "isDeleted">);
 
-/** A deletion depends on the message identity, not on fields that are no longer displayed. */
-export function parseMessageLogEntry(line: string): MessageLogEntry | undefined {
-	let row: unknown;
+function parseLogRow(line: string): unknown {
 	try {
-		row = JSON.parse(line);
+		return JSON.parse(line);
 	} catch {
 		return undefined;
 	}
+}
+
+/** A deletion depends on the message identity, not on fields that are no longer displayed. */
+export function parseMessageLogEntry(line: string): MessageLogEntry | undefined {
+	const row = parseLogRow(line);
 	if (deletion.check(row)) return { kind: "deleted", ts: row.ts };
-	if (!loggedMessage.check(row)) return undefined;
+	if (!historyMessage.check(row)) return undefined;
 	const { isDeleted: _, ...message } = row;
 	return { ...message, kind: "message" };
 }
@@ -173,7 +188,8 @@ export class MessageLog {
 			const lines = content.split("\n");
 			const lastLine = lines[lines.length - 1];
 			if (!lastLine) return null;
-			return parseMessageLogEntry(lastLine)?.ts ?? null;
+			const row = parseLogRow(lastLine);
+			return cursor.check(row) ? row.ts : null;
 		} catch {
 			return null;
 		}

@@ -1,3 +1,4 @@
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../sandbox.js";
 import { createBashTool } from "./bash.js";
 import { createEditTool } from "./edit.js";
@@ -41,6 +42,6 @@ export {
  * Create the default set of tools (read, bash, edit, write) bound to a given Executor.
  * Platform-specific tools (e.g. Slack attach, Discord reply) should be added at the call site.
  */
-export function createBotTools(executor: Executor) {
+export function createBotTools(executor: Executor): AgentTool[] {
 	return [createReadTool(executor), createBashTool(executor), createEditTool(executor), createWriteTool(executor)];
 }

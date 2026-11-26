@@ -191,6 +191,14 @@ describe("getLastTimestamp", () => {
 		expect(ml.getLastTimestamp("123")).toBe("2");
 	});
 
+	test("returns a valid cursor without requiring other message fields", () => {
+		const ml = new MessageLog({ workingDir: ws });
+		const dir = join(ws, "123");
+		mkdirSync(dir);
+		writeFileSync(join(dir, "log.jsonl"), '{"ts":"42"}\n');
+		expect(ml.getLastTimestamp("123")).toBe("42");
+	});
+
 	test.each([undefined, 42, ""])("returns null for an invalid message id (%p)", (ts) => {
 		const ml = new MessageLog({ workingDir: ws });
 		const dir = join(ws, "123");
