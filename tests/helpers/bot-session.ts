@@ -1,6 +1,6 @@
 /**
- * Test harness that wires `createBotAgentExtensions` into a real SDK `AgentSession` exactly as the
- * README caller contract describes, inside an isolated HOME / agent directory. No model is ever
+ * Test harness that wires `createBotAgentExtensions` into a real SDK `AgentSession` exactly as
+ * docs/agent-extensions.md describes, inside an isolated HOME / agent directory. No model is ever
  * called: tool calls are driven through the SDK tool pipeline with synthetic assistant messages.
  */
 import { Agent, runToolCall, type AgentTool, type AgentToolCallOutcome } from "@earendil-works/pi-agent-core";
@@ -70,7 +70,7 @@ export interface BotSession {
 	runtime: BotAgentExtensions;
 	notifications: Notification[];
 	extensionErrors: string[];
-	/** Caller-owned shutdown order from the README: session_shutdown, close, then dispose. */
+	/** Caller-owned shutdown order from docs/agent-extensions.md: session_shutdown, close, then dispose. */
 	shutdown(): Promise<void>;
 }
 

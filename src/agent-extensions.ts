@@ -5,8 +5,8 @@
  * the SDK extension factories every bot session uses: Codemode (always on, without the `models`
  * API), and, when MCP servers are configured, tool search plus the SDK MCP extension fed only by
  * that config. MCP runs in the bot process, outside any workspace sandbox, and each runtime owns
- * the transports of one session; it is not a shared connection pool. See README for the caller
- * contract.
+ * the transports of one session; it is not a shared connection pool. See
+ * docs/agent-extensions.md for the caller contract.
  */
 import {
 	createCodemodeExtension,
