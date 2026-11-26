@@ -464,6 +464,8 @@ bun --no-env-file run typecheck
 bun test --no-env-file
 ```
 
+Install [prek](https://github.com/j178/prek) (for example, `brew install prek` on macOS), then run `prek install` once per clone after installing dependencies. The pre-commit hook runs the full TypeScript check on every commit. To run it manually, use `prek run --all-files typecheck`.
+
 CI runs the real-VM tests on QEMU only. Before running real-VM tests locally, prepare the pinned image by calling `validateVMSandbox()` for QEMU or `validateVMSandbox({ backend: "krun" })` for krun. On a suitable host, opt in to the krun tests with `PI_BOT_TEST_VM_SANDBOX_KRUN=1 bun test tests/vm-sandbox.test.ts -t 'krun turn'`.
 
 `typecheck` checks all TypeScript under `src/` and `tests/`, including compile-time assertions about tool schemas, event routing, and truncation results.

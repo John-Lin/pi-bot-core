@@ -1,0 +1,11 @@
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "typecheck"
+name = "TypeScript typecheck"
+entry = "bun --no-env-file run typecheck"
+language = "system"
+stages = ["pre-commit"]
+always_run = true
+pass_filenames = false
