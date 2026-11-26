@@ -1,6 +1,7 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, type BigIntStats } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join, parse, resolve, sep } from "node:path";
+import { fsErrorCode } from "./fs-errors.js";
 
 export class UnsafeWorkspaceEntry extends Error {
 	readonly code = "EACCES";
@@ -31,7 +32,7 @@ export function inspectWorkspaceEntry(path: string): BigIntStats | undefined {
 		}
 		return stats ?? lstatSync(current, { bigint: true });
 	} catch (error) {
-		if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return undefined;
+		if (["ENOENT", "ENOTDIR"].includes(fsErrorCode(error) ?? "")) return undefined;
 		throw error;
 	}
 }

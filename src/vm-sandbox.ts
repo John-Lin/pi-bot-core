@@ -264,7 +264,7 @@ export class VMSandboxTurn implements Executor {
 					cwd: this.cwd, signal, stdout: "pipe", stderr: "pipe",
 				});
 				const [result, stdout, stderr] = await Promise.all([
-					proc, readBounded(proc.stdout!), readBounded(proc.stderr!),
+					proc, readBounded(proc.stdout), readBounded(proc.stderr),
 				]);
 				return { stdout: stdout.toString(), stderr: stderr.toString(), code: result.exitCode };
 			}, signal);
@@ -336,7 +336,7 @@ export class VMSandboxTurn implements Executor {
 			return await run(vm, abort);
 		} catch (error) {
 			// Stopping an SDK exec is not a guarantee that its guest process has stopped.
-			if (abort.aborted || !vm || error instanceof OutputLimitError) {
+			if (abort.aborted || !vm || error instanceof WorkspaceOutputError) {
 				try {
 					await this.close();
 				} catch (cleanupError) {
@@ -389,16 +389,21 @@ export class VMSandboxTurn implements Executor {
 	}
 }
 
-class OutputLimitError extends Error {}
+class WorkspaceOutputError extends Error {}
 class WorkspaceCleanupError extends AggregateError {}
 
-async function readBounded(stream: Readable): Promise<Buffer> {
+async function readBounded(stream: Readable | null): Promise<Buffer> {
+	if (!stream) throw new WorkspaceOutputError("Workspace tool output stream is unavailable.");
 	const chunks: Buffer[] = [];
 	let length = 0;
 	for await (const value of stream) {
-		const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+		const raw: unknown = value;
+		if (typeof raw !== "string" && !(raw instanceof Uint8Array)) {
+			throw new WorkspaceOutputError("Workspace tool output must be text or bytes.");
+		}
+		const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
 		length += chunk.length;
-		if (length > MAX_BUFFER_BYTES) throw new OutputLimitError("Workspace tool output exceeded 10 MiB.");
+		if (length > MAX_BUFFER_BYTES) throw new WorkspaceOutputError("Workspace tool output exceeded 10 MiB.");
 		chunks.push(chunk);
 	}
 	return Buffer.concat(chunks, length);

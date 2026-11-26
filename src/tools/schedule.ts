@@ -3,97 +3,104 @@ import { Cron } from "croner";
 import { randomBytes } from "crypto";
 import { closeSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import type { Schema, Static } from "@earendil-works/pi-schema";
+import { compile, nullable, obj, oneOf, opt, str, type Schema, type Static } from "@earendil-works/pi-schema";
 
-export type ScheduleEventType = "immediate" | "one-shot" | "periodic";
+const scheduleEventType = oneOf(["immediate", "one-shot", "periodic"]);
+export type ScheduleEventType = Static<typeof scheduleEventType>;
 
-/**
- * Platform-agnostic fields every scheduled event carries.
- *
- * Each bot composes its own pi-schema parameters schema (chatId/channelId,
- * threadId, etc.) and projects validated args onto this shape via
- * {@link CreateScheduleToolConfig.buildRouting} + the common fields below.
- */
-export interface CommonScheduleArgs {
+const optionalScheduleText = opt(nullable(str()));
+const scheduleFieldsSchema = obj({
+	type: scheduleEventType,
+	text: str(),
+	at: optionalScheduleText,
+	schedule: optionalScheduleText,
+	timezone: optionalScheduleText,
+	name: optionalScheduleText,
+}, { open: true });
+
+type ScheduleFields = Static<typeof scheduleFieldsSchema>;
+type DirectScheduleFields = { [Key in keyof ScheduleFields]: Exclude<ScheduleFields[Key], null> };
+
+/** Platform-agnostic arguments for building an event payload directly. */
+export interface CommonScheduleArgs extends DirectScheduleFields {
 	label: string;
-	type: ScheduleEventType;
-	text: string;
-	at?: string;
-	schedule?: string;
-	timezone?: string;
-	name?: string;
 }
+
+const scheduleFields = compile(scheduleFieldsSchema);
+
+type ScheduleTiming =
+	| { type: "immediate" }
+	| { type: "one-shot"; at: string }
+	| { type: "periodic"; schedule: string; timezone: string };
 
 const SLUG_RE = /^[a-z0-9-]{1,40}$/;
 
 /**
  * Build an event JSON payload + filename from validated common fields plus
  * per-platform routing fields (e.g. `{ channelId }` or `{ chatId, threadId? }`)
- * merged verbatim into the output JSON.
+ * merged into the output JSON.
  */
 export function buildEventPayload(
 	args: CommonScheduleArgs & { routing: Record<string, unknown> },
 	now: number = Date.now(),
 ): { filename: string; json: Record<string, unknown> } {
-	if (args.type === "one-shot") {
-		if (!args.at) throw new Error("schedule_event: 'at' is required for type='one-shot'");
-		const ms = Date.parse(args.at);
-		if (Number.isNaN(ms)) {
-			throw new Error(`schedule_event: 'at' is not a valid ISO 8601 timestamp: ${args.at}`);
-		}
-		if (ms <= now) {
-			throw new Error(`schedule_event: 'at' must be in the future: ${args.at}`);
-		}
-		if (args.schedule || args.timezone) {
-			throw new Error("schedule_event: 'schedule'/'timezone' are only for type='periodic'");
-		}
-	} else if (args.type === "periodic") {
-		if (!args.schedule) {
-			throw new Error("schedule_event: 'schedule' is required for type='periodic'");
-		}
-		if (!args.timezone) {
-			throw new Error("schedule_event: 'timezone' is required for type='periodic'");
-		}
-		if (args.at) {
-			throw new Error("schedule_event: 'at' is only for type='one-shot'");
-		}
-		try {
-			// Some runtimes accept UTC offsets here, but the tool requires an IANA name.
-			const timezone = new Intl.DateTimeFormat("en", { timeZone: args.timezone }).resolvedOptions().timeZone;
-			if (/^[+-]/.test(timezone)) throw new Error("Use an IANA timezone name, not a UTC offset");
-			const cron = new Cron(args.schedule, { timezone: args.timezone });
-			if (cron.getOnce()) throw new Error("Use a recurring cron pattern, not a one-shot date");
-			if (!cron.nextRun(new Date(now))) throw new Error("No future occurrence");
-		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
-			throw new Error(`schedule_event: invalid 'schedule' or 'timezone': ${reason}`);
-		}
-	} else {
-		// immediate
-		if (args.at || args.schedule || args.timezone) {
-			throw new Error("schedule_event: type='immediate' takes no 'at'/'schedule'/'timezone'");
-		}
-	}
+	const { filename, json } = composeSchedule(args, now);
+	return { filename, json };
+}
 
-	const slug = args.name ?? args.type;
+function composeSchedule(args: ScheduleFields & { routing: Record<string, unknown> }, now: number) {
+	const timing = parseScheduleTiming(args, now);
+	const slug = args.name ?? timing.type;
 	if (!SLUG_RE.test(slug)) {
 		throw new Error(`schedule_event: 'name' must match /^[a-z0-9-]{1,40}$/, got: ${slug}`);
 	}
-
-	const filename = `${slug}-${now}.json`;
-
-	const json: Record<string, unknown> = {
-		type: args.type,
-		...args.routing,
-		text: args.text,
+	const { type, ...schedule } = timing;
+	return {
+		filename: `${slug}-${now}.json`,
+		json: { type, ...args.routing, text: args.text, ...schedule },
+		timing,
 	};
-	if (args.type === "one-shot") json.at = args.at;
-	if (args.type === "periodic") {
-		json.schedule = args.schedule;
-		json.timezone = args.timezone;
-	}
+}
 
-	return { filename, json };
+function parseScheduleTiming({ type, at, schedule, timezone }: ScheduleFields, now: number): ScheduleTiming {
+	switch (type) {
+		case "one-shot": {
+			if (!at) throw new Error("schedule_event: 'at' is required for type='one-shot'");
+			const ms = Date.parse(at);
+			if (Number.isNaN(ms)) throw new Error(`schedule_event: 'at' is not a valid ISO 8601 timestamp: ${at}`);
+			if (ms <= now) throw new Error(`schedule_event: 'at' must be in the future: ${at}`);
+			if (schedule || timezone) {
+				throw new Error("schedule_event: 'schedule'/'timezone' are only for type='periodic'");
+			}
+			return { type, at };
+		}
+		case "periodic": {
+			if (!schedule) throw new Error("schedule_event: 'schedule' is required for type='periodic'");
+			if (!timezone) throw new Error("schedule_event: 'timezone' is required for type='periodic'");
+			if (at) throw new Error("schedule_event: 'at' is only for type='one-shot'");
+			try {
+				// Some runtimes accept UTC offsets here, but the tool requires an IANA name.
+				const canonicalZone = new Intl.DateTimeFormat("en", { timeZone: timezone }).resolvedOptions().timeZone;
+				if (/^[+-]/.test(canonicalZone)) throw new Error("Use an IANA timezone name, not a UTC offset");
+				const cron = new Cron(schedule, { timezone });
+				if (cron.getOnce()) throw new Error("Use a recurring cron pattern, not a one-shot date");
+				if (!cron.nextRun(new Date(now))) throw new Error("No future occurrence");
+			} catch (error) {
+				const reason = error instanceof Error ? error.message : String(error);
+				throw new Error(`schedule_event: invalid 'schedule' or 'timezone': ${reason}`);
+			}
+			return { type, schedule, timezone };
+		}
+		case "immediate":
+			if (at || schedule || timezone) {
+				throw new Error("schedule_event: type='immediate' takes no 'at'/'schedule'/'timezone'");
+			}
+			return { type };
+		default: {
+			const _exhaustive: never = type;
+			throw new Error(`schedule_event: unsupported type ${_exhaustive}`);
+		}
+	}
 }
 
 export interface CreateScheduleToolConfig<TParams extends Schema> {
@@ -134,11 +141,14 @@ export function createScheduleTool<TParams extends Schema>(
 		execute: async (_toolCallId, args, signal) => {
 			signal?.throwIfAborted();
 
-			const common = args as CommonScheduleArgs;
-			const { filename, json } = buildEventPayload({
-				...common,
+			if (!scheduleFields.check(args)) {
+				const issues = scheduleFields.errors(args).map(({ path, message }) => `${path || "/"}: ${message}`);
+				throw new Error(`schedule_event: invalid arguments: ${issues.join("; ")}`);
+			}
+			const { filename, json, timing } = composeSchedule({
+				...args,
 				routing: config.buildRouting(args),
-			});
+			}, Date.now());
 
 			mkdirSync(eventsDir, { recursive: true });
 			const fullPath = join(eventsDir, filename);
@@ -157,20 +167,20 @@ export function createScheduleTool<TParams extends Schema>(
 			}
 
 			const summary =
-				common.type === "one-shot"
-					? `at ${common.at}`
-					: common.type === "periodic"
-						? `${common.schedule} (${common.timezone})`
+				timing.type === "one-shot"
+					? `at ${timing.at}`
+					: timing.type === "periodic"
+						? `${timing.schedule} (${timing.timezone})`
 						: "immediate";
 
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Scheduled ${common.type} event: ${filename} (${summary})`,
+						text: `Scheduled ${timing.type} event: ${filename} (${summary})`,
 					},
 				],
-				details: { filename, path: fullPath, type: common.type },
+				details: { filename, path: fullPath, type: timing.type },
 			};
 		},
 	};

@@ -53,10 +53,10 @@ Immediate events tolerate short outages: files last modified within five minutes
 
 ```ts
 import { createBotTools } from "pi-bot-core";
-import { VMSandbox, validateVMSandbox } from "pi-bot-core/vm-sandbox";
+import { VMSandbox, validateVMSandbox, type VMSandboxOptions } from "pi-bot-core/vm-sandbox";
 import { ensureChatDir } from "pi-bot-core/workspace";
 
-const sandboxOptions = { backend: "qemu" } as const; // Use "krun" to opt in.
+const sandboxOptions = { backend: "qemu" } satisfies VMSandboxOptions; // Use "krun" to opt in.
 await validateVMSandbox(sandboxOptions); // Once at startup.
 const sandbox = new VMSandbox(2, sandboxOptions); // Share one instance across the bot.
 const paths = ensureChatDir(workspace, chatId); // Checks all directories before creating the layout.
@@ -327,11 +327,13 @@ const progress = new ProgressTracker(); // Inside the bot's run, not at module s
 function onSessionEvent(event: AgentSessionEvent): void {
   switch (event.type) {
     case "tool_execution_start": {
-      const args = event.args as Record<string, unknown> | undefined;
+      const args: unknown = event.args;
+      const label = typeof args === "object" && args !== null && "label" in args
+        && typeof args.label === "string" ? args.label : undefined;
       progress.apply({
         type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName,
         parentToolCallId: event.parentToolCallId,
-        label: typeof args?.label === "string" ? args.label : undefined,
+        label,
       });
       break;
     }
@@ -445,7 +447,7 @@ Consumers must provide `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`,
 
 Tool parameter schemas use `@earendil-works/pi-schema` instead of a direct TypeBox dependency. Built-in schemas use `obj(properties, { open: true })` to preserve their acceptance of extra fields; required fields, optional fields, descriptions, and numeric bounds are unchanged. Pi SDK 1.5 validates and coerces tool arguments with pi-schema, including its validation error messages. `pi-coding-agent` still brings TypeBox as a transitive dependency for extension compatibility.
 
-When supplying `createScheduleTool` parameters, use pi-schema builders (`obj`, `str`, `num`, `opt`, etc.); routing callback arguments are inferred with pi-schema's `Static`. Unlike the built-in schemas here, `obj(properties)` is closed by default; pass `{ open: true }` if your schema should accept extra fields.
+When supplying `createScheduleTool` parameters, use pi-schema builders (`obj`, `str`, `num`, `opt`, etc.); routing callback arguments are inferred with pi-schema's `Static`. Unlike the built-in schemas here, `obj(properties)` is closed by default; pass `{ open: true }` if your schema should accept extra fields. The tool schema can define a `label` for display, but scheduling does not require it.
 
 Both VM backends use `qemu-img` for copy-on-write disks. Put it on the bot's `PATH` (Homebrew: `qemu`; Debian/Ubuntu: `qemu-utils`). Cold image downloads require `tar` with gzip support (`gzip` must also be on `PATH` for GNU tar).
 
@@ -458,13 +460,18 @@ Both VM backends use `qemu-img` for copy-on-write disks. Put it on the bot's `PA
 
 ```sh
 bun --no-env-file install --frozen-lockfile
+bun --no-env-file run lint
 bun --no-env-file run typecheck
 bun test --no-env-file
 ```
 
+Install [prek](https://github.com/j178/prek) (for example, `brew install prek` on macOS), then run `prek install` once per clone after installing dependencies. On commit, prek runs the full TypeScript check, lints staged TypeScript files under `src/`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. Run `prek run --all-files` to check the repository manually; CI lints all of `src/`.
+
 CI runs the real-VM tests on QEMU only. Before running real-VM tests locally, prepare the pinned image by calling `validateVMSandbox()` for QEMU or `validateVMSandbox({ backend: "krun" })` for krun. On a suitable host, opt in to the krun tests with `PI_BOT_TEST_VM_SANDBOX_KRUN=1 bun test tests/vm-sandbox.test.ts -t 'krun turn'`.
 
-`typecheck` also checks `tests/tool-schemas.test.ts` so schedule routing argument inference is covered in CI, as well as the event lifecycle and shared system-prompt tests, the Codemode/MCP tests, the shared progress and SDK progress-integration tests, and their fixtures.
+`typecheck` checks all TypeScript under `src/` and `tests/`, including compile-time assertions about tool schemas, event routing, and truncation results.
+
+Use pi-schema to validate untyped inputs at the boundary and infer the types that downstream code consumes. Local operator configuration rejects unknown fields. Loaded MCP configuration retains SDK-supported alias spellings. JSONL readers ignore malformed message rows, so a corrupt edit cannot replace a valid message. A valid deletion marker still suppresses its message when display metadata is missing or invalid. Telegraph validates API responses and saved credentials without synthesizing missing metadata. The SDK retains its existing public declarations; at runtime the API can omit `auth_url` or page content, and copied account files can contain only a token.
 
 The Codemode/MCP tests run real stdio and streamable HTTP fixture servers and a local OAuth server, with `HOME`, `PI_CODING_AGENT_DIR`, credential, and log paths in temporary directories. They drive tool calls through the SDK tool pipeline with synthetic assistant messages and never call a model.
 

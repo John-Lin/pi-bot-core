@@ -1,4 +1,4 @@
-import type { Node, NodeElement } from "./types.js";
+import type { RenderableElement, RenderableNode } from "./types.js";
 
 /**
  * Render a Telegraph `Node[]` tree back to Markdown. Designed to round-trip
@@ -6,11 +6,11 @@ import type { Node, NodeElement } from "./types.js";
  * equivalent (u, aside, iframe, video) degrade gracefully so the agent still
  * sees usable text when reading an arbitrary Telegraph page.
  */
-export function serialize(nodes: Node[]): string {
+export function serialize(nodes: RenderableNode[]): string {
 	return blocksToMarkdown(nodes).trim();
 }
 
-function blocksToMarkdown(nodes: Node[]): string {
+function blocksToMarkdown(nodes: RenderableNode[]): string {
 	const parts: string[] = [];
 	for (const node of nodes) {
 		const rendered = blockToMarkdown(node);
@@ -20,7 +20,7 @@ function blocksToMarkdown(nodes: Node[]): string {
 	return parts.join("\n\n");
 }
 
-function blockToMarkdown(node: Node): string {
+function blockToMarkdown(node: RenderableNode): string {
 	if (typeof node === "string") return node;
 	switch (node.tag) {
 		case "p":
@@ -55,7 +55,7 @@ function blockToMarkdown(node: Node): string {
 	}
 }
 
-function figureToMarkdown(node: NodeElement): string {
+function figureToMarkdown(node: RenderableElement): string {
 	const children = node.children ?? [];
 	let src = "";
 	let caption = "";
@@ -67,7 +67,7 @@ function figureToMarkdown(node: NodeElement): string {
 	return `![${caption}](${src})`;
 }
 
-function listToMarkdown(node: NodeElement): string {
+function listToMarkdown(node: RenderableElement): string {
 	const items = node.children ?? [];
 	const ordered = node.tag === "ol";
 	const lines: string[] = [];
@@ -81,7 +81,7 @@ function listToMarkdown(node: NodeElement): string {
 	return lines.join("\n");
 }
 
-function renderListItem(item: NodeElement, marker: string): string {
+function renderListItem(item: RenderableElement, marker: string): string {
 	const children = item.children ?? [];
 	const inlineParts: string[] = [];
 	const blockParts: string[] = [];
@@ -103,7 +103,7 @@ function renderListItem(item: NodeElement, marker: string): string {
 	return `${head}\n${indented}`;
 }
 
-function inlineChildren(node: NodeElement): string {
+function inlineChildren(node: RenderableElement): string {
 	const out: string[] = [];
 	for (const c of node.children ?? []) {
 		if (typeof c === "string") out.push(c);
@@ -112,7 +112,7 @@ function inlineChildren(node: NodeElement): string {
 	return out.join("");
 }
 
-function inlineToMarkdown(node: NodeElement): string {
+function inlineToMarkdown(node: RenderableElement): string {
 	switch (node.tag) {
 		case "strong":
 		case "b":
@@ -147,7 +147,7 @@ function inlineToMarkdown(node: NodeElement): string {
 	}
 }
 
-function isInline(node: NodeElement): boolean {
+function isInline(node: RenderableElement): boolean {
 	switch (node.tag) {
 		case "a":
 		case "b":

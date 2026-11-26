@@ -5,11 +5,33 @@ import {
 	fauxAssistantMessage,
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
+import { createGrepTool } from "@earendil-works/pi-coding-agent";
+import { obj, str } from "@earendil-works/pi-schema";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBotTools } from "../src/index.js";
+import { createBotTools, createChatHistoryTool } from "../src/index.js";
 import { HostExecutor } from "./helpers/host-executor.js";
+
+test("the default tools list accepts another SDK tool", () => {
+	const tools = createBotTools(new HostExecutor());
+	const chatHistory = createChatHistoryTool({ logFilePath: "log.jsonl" });
+	tools.push(chatHistory);
+	expect(tools.at(-1)).toBe(chatHistory);
+});
+
+test("the default tools list also accepts SDK built-ins and inline typed tools", () => {
+	const tools = createBotTools(new HostExecutor());
+	tools.push(createGrepTool(process.cwd()));
+	tools.push({
+		name: "reply",
+		label: "Reply",
+		description: "Send a response",
+		parameters: obj({ text: str() }),
+		execute: async (_id, { text }: { text: string }) => ({ content: [{ type: "text", text }], details: undefined }),
+	});
+	expect(tools.slice(-2).map((tool) => tool.name)).toEqual(["grep", "reply"]);
+});
 
 describe("workspace tools in the Pi agent pipeline", () => {
 	test("returns real tool results with SDK-recorded execution durations", async () => {

@@ -1,6 +1,7 @@
 import { closeSync, readdirSync, readSync, writeFileSync } from "fs";
 import { join } from "path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
+import { fsErrorCode } from "./fs-errors.js";
 import { ensureWorkspaceDirectoriesAreSafe, WorkspaceBootstrapSecurityError } from "./workspace-bootstrap.js";
 import { inspectWorkspaceEntry, openWorkspaceFile, UnsafeWorkspaceEntry } from "./workspace-files.js";
 
@@ -56,7 +57,7 @@ function touchFile(path: string): void {
 	try {
 		writeFileSync(path, "", { flag: "wx" });
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+		if (fsErrorCode(error) !== "EEXIST") throw error;
 	}
 }
 
@@ -90,7 +91,7 @@ function tryRead(path: string): string {
 		const content = buffer.toString("utf8", 0, Math.min(length, MAX_MEMORY_BYTES)).trim();
 		return length > MAX_MEMORY_BYTES ? `${content}\n[truncated: MEMORY.md exceeds the prompt limit]` : content;
 	} catch (error) {
-		if (error instanceof UnsafeWorkspaceEntry || ["ENOENT", "ENOTDIR", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "")) return "";
+		if (error instanceof UnsafeWorkspaceEntry || ["ENOENT", "ENOTDIR", "ELOOP"].includes(fsErrorCode(error) ?? "")) return "";
 		throw error;
 	} finally {
 		if (fd !== undefined) closeSync(fd);
@@ -101,8 +102,7 @@ function isSafeSkillScope(dir: string): boolean {
 	try {
 		if (!inspectWorkspaceEntry(dir)?.isDirectory()) return false;
 		const directories = [dir];
-		while (directories.length > 0) {
-			const current = directories.pop()!;
+		for (let current = directories.pop(); current !== undefined; current = directories.pop()) {
 			// Pi probes these exact paths, including on case-insensitive filesystems.
 			for (const name of SKILL_IGNORE_FILES) {
 				const entry = inspectWorkspaceEntry(join(current, name));
@@ -119,7 +119,7 @@ function isSafeSkillScope(dir: string): boolean {
 		}
 		return true;
 	} catch (error) {
-		if (["ENOENT", "ENOTDIR", "ELOOP", "EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+		if (["ENOENT", "ENOTDIR", "ELOOP", "EACCES", "EPERM"].includes(fsErrorCode(error) ?? "")) return false;
 		throw error;
 	}
 }

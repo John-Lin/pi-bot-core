@@ -11,12 +11,11 @@ export type ProgressEvent =
 	| { type: "compaction" }
 	| { type: "retry"; attempt: number; max: number };
 
-interface ProgressLine {
-	status: "running" | "ok" | "err";
-	revision: number;
-}
+type ToolStatus =
+	| { kind: "running" }
+	| { kind: "finished"; isError: boolean; durationMs?: number };
 
-interface ToolProgress extends ProgressLine {
+interface ToolProgress {
 	kind: "tool";
 	id: string;
 	toolName: string;
@@ -24,12 +23,14 @@ interface ToolProgress extends ProgressLine {
 	parentToolCallId?: string;
 	isCodemode: boolean;
 	hasChildren: boolean;
-	durationMs?: number;
+	status: ToolStatus;
+	revision: number;
 }
 
-interface NoticeProgress extends ProgressLine {
+interface NoticeProgress {
 	kind: "notice";
 	label: string;
+	revision: number;
 }
 
 type Line = ToolProgress | NoticeProgress;
@@ -55,7 +56,7 @@ export class ProgressTracker {
 					parentToolCallId: event.parentToolCallId,
 					isCodemode: event.toolName === "codemode",
 					hasChildren: [...this.calls.values()].some((child) => child.parentToolCallId === event.toolCallId),
-					status: "running",
+					status: { kind: "running" },
 					revision: 0,
 				};
 				this.calls.set(call.id, call);
@@ -63,7 +64,7 @@ export class ProgressTracker {
 				const parent = event.parentToolCallId === undefined ? undefined : this.calls.get(event.parentToolCallId);
 				if (parent) {
 					parent.hasChildren = true;
-					if (parent.isCodemode && parent.status !== "err") {
+					if (parent.isCodemode && !(parent.status.kind === "finished" && parent.status.isError)) {
 						this.lines = this.lines.filter((line) => line !== parent);
 					}
 				}
@@ -72,19 +73,22 @@ export class ProgressTracker {
 			}
 			case "tool_end": {
 				const call = this.calls.get(event.toolCallId);
-				if (!call || call.status !== "running") return;
-				call.status = event.isError ? "err" : "ok";
-				call.durationMs = event.durationMs;
+				if (!call || call.status.kind !== "running") return;
+				call.status = { kind: "finished", isError: event.isError, durationMs: event.durationMs };
 				// A heading cannot communicate script failure, even if every child succeeded.
 				if (!call.isCodemode || !call.hasChildren || event.isError) this.updateLine(call);
 				break;
 			}
 			case "compaction":
-				this.updateLine({ kind: "notice", label: "Compacting context", status: "running", revision: 0 });
+				this.updateLine({ kind: "notice", label: "Compacting context", revision: 0 });
 				break;
 			case "retry":
-				this.updateLine({ kind: "notice", label: `Retrying (${event.attempt}/${event.max})`, status: "running", revision: 0 });
+				this.updateLine({ kind: "notice", label: `Retrying (${event.attempt}/${event.max})`, revision: 0 });
 				break;
+			default: {
+				const _exhaustive: never = event;
+				return _exhaustive;
+			}
 		}
 		this.pruneCalls();
 	}
@@ -101,18 +105,18 @@ export class ProgressTracker {
 			for (let index = shared; index < headings.length; index++) {
 				rendered.push(formatText("codemode"));
 			}
+			const completed = line.kind === "tool" && line.status.kind === "finished" ? line.status : undefined;
 			let title: string;
 			if (line.kind === "notice") {
 				title = formatText(line.label);
 			} else if (line.isCodemode) {
-				title = formatText(line.status === "err" ? "Script failed" : "Script");
+				title = formatText(completed?.isError ? "Script failed" : "Script");
 			} else {
 				title = formatText(line.toolName);
 				if (line.label) title += ` — ${formatText(line.label)}`;
 			}
-			const icon = line.status === "running" ? "…" : line.status === "ok" ? "✓" : "✗";
-			const duration = line.kind === "tool" && line.status !== "running" && line.durationMs !== undefined
-				? ` ${formatDuration(line.durationMs)}` : "";
+			const icon = completed === undefined ? "…" : completed.isError ? "✗" : "✓";
+			const duration = completed?.durationMs === undefined ? "" : ` ${formatDuration(completed.durationMs)}`;
 			rendered.push(`${icon} ${title}${duration}`);
 			previous = headings;
 		}
@@ -123,11 +127,8 @@ export class ProgressTracker {
 		line.revision = ++this.revision;
 		if (!this.lines.includes(line)) this.lines.push(line);
 		if (this.lines.length <= MAX_PROGRESS_LINES) return;
-		let oldestIndex = 0;
-		for (let index = 1; index < this.lines.length; index++) {
-			if (this.lines[index]!.revision < this.lines[oldestIndex]!.revision) oldestIndex = index;
-		}
-		this.lines.splice(oldestIndex, 1);
+		const oldest = this.lines.reduce((oldest, entry) => entry.revision < oldest.revision ? entry : oldest, line);
+		this.lines = this.lines.filter((entry) => entry !== oldest);
 	}
 
 	private headings(call: ToolProgress): ToolProgress[] {
@@ -152,7 +153,7 @@ export class ProgressTracker {
 			}
 		};
 		// Hidden active calls need their ancestor chain when their eventual completion becomes visible.
-		for (const call of this.calls.values()) if (call.status === "running") retain(call);
+		for (const call of this.calls.values()) if (call.status.kind === "running") retain(call);
 		for (const line of this.lines) if (line.kind === "tool") retain(line);
 		for (const id of this.calls.keys()) if (!retained.has(id)) this.calls.delete(id);
 	}

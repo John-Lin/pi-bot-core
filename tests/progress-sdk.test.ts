@@ -17,8 +17,10 @@ function normalize(event: ToolEvent): ProgressEvent {
 		parentToolCallId: event.parentToolCallId,
 	};
 	if (event.type === "tool_execution_start") {
-		const args = event.args as Record<string, unknown>;
-		return { type: "tool_start", ...identity, label: typeof args.label === "string" ? args.label : undefined };
+		const args: unknown = event.args;
+		const label = typeof args === "object" && args !== null && "label" in args
+			&& typeof args.label === "string" ? args.label : undefined;
+		return { type: "tool_start", ...identity, label };
 	}
 	return { type: "tool_end", ...identity, isError: event.isError, durationMs: event.durationMs };
 }
@@ -68,11 +70,15 @@ describe("progress with the installed SDK nested tool pipeline", () => {
 						expect(event.durationMs).toBeNumber();
 						expect(event.durationMs).toBeGreaterThanOrEqual(0);
 					}
-					expect(ends[2]!.durationMs).toBeUndefined();
+					const [read, missing, rejected] = ends;
+					if (read?.durationMs === undefined || missing?.durationMs === undefined || !rejected) {
+						throw new Error("Expected two executed tools and a rejected tool");
+					}
+					expect(rejected.durationMs).toBeUndefined();
 					// Introduce only the actual wrapper from the fixture input, never infer it from an ID prefix.
 					tracker.apply({ type: "tool_start", toolCallId: wrapper.id, toolName: wrapper.name });
 					const duration = (ms: number) => ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
-					expect(tracker.render()).toBe(`codemode\n✓ read — Inspect marker ${duration(ends[0]!.durationMs!)}\n✗ read — Missing marker ${duration(ends[1]!.durationMs!)}\n✗ read — Rejected`);
+					expect(tracker.render()).toBe(`codemode\n✓ read — Inspect marker ${duration(read.durationMs)}\n✗ read — Missing marker ${duration(missing.durationMs)}\n✗ read — Rejected`);
 					expect(bot.notifications).toEqual([]);
 					expect(bot.extensionErrors).toEqual([]);
 				} finally {

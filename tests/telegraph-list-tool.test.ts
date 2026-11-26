@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createTelegraphListTool } from "../src/tools/telegraph.js";
+import { firstToolText } from "./helpers/tool-result.js";
 
 let ws: string;
 let originalFetch: typeof fetch;
@@ -62,7 +63,7 @@ describe("createTelegraphListTool", () => {
 		const result = await tool.execute("c1", { label: "list" }, undefined);
 
 		expect(lastBody).toEqual({ access_token: "tok" });
-		const text = (result.content as { type: string; text: string }[])[0].text;
+		const text = firstToolText(result);
 		expect(text).toContain("Article A");
 		expect(text).toContain("https://telegra.ph/A-12-31");
 		expect(text).toContain("Article B");
@@ -82,7 +83,7 @@ describe("createTelegraphListTool", () => {
 		nextPages = { total_count: 0, pages: [] };
 		const tool = createTelegraphListTool(ws);
 		const result = await tool.execute("c1", { label: "list" }, undefined);
-		const text = (result.content as { type: string; text: string }[])[0].text;
+		const text = firstToolText(result);
 		expect(text.toLowerCase()).toContain("no pages");
 	});
 
@@ -100,7 +101,7 @@ describe("createTelegraphListTool", () => {
 		};
 		const tool = createTelegraphListTool(ws);
 		const result = await tool.execute("c1", { label: "list" }, undefined);
-		const text = (result.content as { type: string; text: string }[])[0].text;
+		const text = firstToolText(result);
 		// Should indicate there are more pages than shown.
 		expect(text).toMatch(/200/);
 		expect(text).toMatch(/50/);

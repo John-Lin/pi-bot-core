@@ -22,6 +22,15 @@ describe("buildEventPayload", () => {
 		expect(json.threadId).toBe(42);
 	});
 
+	test("keeps routing extras and the established precedence of message and schedule fields", () => {
+		const { filename, json } = buildEventPayload({
+			label: "x", type: "one-shot", text: "hi", at: FUTURE,
+			routing: { chatId: 1, text: "routing text", at: "routing timestamp", timezone: "UTC" },
+		}, NOW);
+		expect(filename).toBe(`one-shot-${NOW}.json`);
+		expect(json).toEqual({ type: "one-shot", chatId: 1, text: "hi", at: FUTURE, timezone: "UTC" });
+	});
+
 	test("immediate: rejects 'at'", () => {
 		expect(() =>
 			buildEventPayload(

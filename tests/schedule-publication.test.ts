@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { lit, obj, opt, str } from "@earendil-works/pi-schema";
+import { lit, nullable, obj, opt, str } from "@earendil-works/pi-schema";
 import { createScheduleTool } from "../src/tools/schedule.js";
 
 function scheduleTool(workspace: string) {
@@ -20,6 +20,39 @@ describe("schedule_event publication", () => {
 		try {
 			const result = await scheduleTool(workspace).execute("schedule", { label: "x", type: "immediate", text: "hi" });
 			expect(readdirSync(join(workspace, "events"))).toEqual([result.details.filename]);
+			expect(JSON.parse(readFileSync(result.details.path, "utf8"))).toEqual({ type: "immediate", chatId: 123, text: "hi" });
+		} finally {
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
+
+	test("honors a caller-supplied SDK schema without a label", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "pi-bot-event-no-label-"));
+		try {
+			const tool = createScheduleTool({
+				workspace,
+				parameters: obj({ type: lit("immediate"), text: str() }),
+				description: "Schedule an immediate event",
+				buildRouting: () => ({ chatId: 123 }),
+			});
+			const result = await tool.execute("schedule", { type: "immediate", text: "hi" });
+			expect(JSON.parse(readFileSync(result.details.path, "utf8"))).toEqual({ type: "immediate", chatId: 123, text: "hi" });
+		} finally {
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
+
+	test("uses the default filename when a caller schema supplies a null name", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "pi-bot-event-null-name-"));
+		try {
+			const tool = createScheduleTool({
+				workspace,
+				parameters: obj({ type: lit("immediate"), text: str(), name: nullable(str()) }),
+				description: "Schedule an immediate event",
+				buildRouting: () => ({ chatId: 123 }),
+			});
+			const result = await tool.execute("schedule", { type: "immediate", text: "hi", name: null });
+			expect(result.details.filename).toMatch(/^immediate-\d+\.json$/);
 			expect(JSON.parse(readFileSync(result.details.path, "utf8"))).toEqual({ type: "immediate", chatId: 123, text: "hi" });
 		} finally {
 			rmSync(workspace, { recursive: true, force: true });

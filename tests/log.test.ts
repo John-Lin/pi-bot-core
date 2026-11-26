@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { createLogger } from "../src/log.js";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { createLogger, type LoggerOptions } from "../src/log.js";
 
 interface TestCtx {
 	id: string;
@@ -9,18 +9,14 @@ interface TestCtx {
 const formatContext = (ctx: TestCtx) => `[${ctx.id}:${ctx.user ?? "?"}]`;
 
 let output: string[];
-let logSpy: ReturnType<typeof spyOn>;
 
 beforeEach(() => {
 	output = [];
-	logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-		output.push(args.map((a) => String(a)).join(" "));
-	});
 });
 
-afterEach(() => {
-	logSpy.mockRestore();
-});
+function makeLogger(options: Pick<LoggerOptions<TestCtx>, "formatBold"> = {}) {
+	return createLogger({ ...options, formatContext, writeLine: (text) => { output.push(text); } });
+}
 
 // Strip ANSI colour codes so assertions test content, not formatting.
 function strip(s: string): string {
@@ -34,13 +30,13 @@ function line(i = 0): string {
 
 describe("createLogger", () => {
 	test("uses formatContext for every line tagged with a context", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		log.logUserMessage({ id: "C1", user: "alice" }, "hi");
 		expect(line()).toMatch(/\[\d{2}:\d{2}:\d{2}\] \[C1:alice\] hi/);
 	});
 
 	test("logInfo / logWarning use [system] prefix and ignore formatContext", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		log.logInfo("booting");
 		log.logWarning("stray event");
 		expect(line(0)).toContain("[system]");
@@ -50,7 +46,7 @@ describe("createLogger", () => {
 	});
 
 	test("logWarning with details emits two lines, without details emits one", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		log.logWarning("warn", "more");
 		expect(output.length).toBe(2);
 		output = [];
@@ -59,7 +55,7 @@ describe("createLogger", () => {
 	});
 
 	test("logAgentError accepts 'system' or a context", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		log.logAgentError("system", "boom");
 		expect(line(0)).toContain("[system]");
 		output = [];
@@ -68,7 +64,7 @@ describe("createLogger", () => {
 	});
 
 	test("attachment download lifecycle logs format filename, size, error", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		const ctx: TestCtx = { id: "C", user: "u" };
 		log.logDownloadStart(ctx, "p.jpg", "C/attachments/p.jpg");
 		expect(line(0)).toMatch(/↓ Downloading attachment/);
@@ -87,7 +83,7 @@ describe("createLogger", () => {
 	});
 
 	test("logToolStart formats path:offset-end when both are given", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		const ctx: TestCtx = { id: "C", user: "u" };
 		log.logToolStart(ctx, "read", "read foo", { path: "/x/foo", offset: 10, limit: 5 });
 		expect(line(0)).toMatch(/↳ read: read foo/);
@@ -95,15 +91,21 @@ describe("createLogger", () => {
 		expect(line(1)).toContain("/x/foo:10-15");
 	});
 
+	test("logToolStart does not calculate line ranges from non-numeric values", () => {
+		const log = makeLogger();
+		log.logToolStart({ id: "C" }, "read", "read foo", { path: "/x/foo", offset: "10", limit: 5 });
+		expect(line(1).trim()).toBe("/x/foo");
+	});
+
 	test("logToolStart drops 'label' from detail body", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		log.logToolStart({ id: "C" }, "bash", "run sh", { label: "run sh", command: "ls" });
 		expect(line(1)).not.toContain("run sh\n"); // label not duplicated in body
 		expect(line(1)).toContain("ls");
 	});
 
 	test("logResponseStart embeds TTFT when provided", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		log.logResponseStart({ id: "C" }, 1234);
 		expect(line()).toMatch(/Streaming response\.\.\. \(TTFT 1\.2s\)/);
 		output = [];
@@ -112,8 +114,7 @@ describe("createLogger", () => {
 	});
 
 	test("logUsageSummary returns a markdown summary using the configured bold formatter", () => {
-		const log = createLogger<TestCtx>({
-			formatContext,
+		const log = makeLogger({
 			formatBold: (text) => `<b>${text}</b>`,
 		});
 		const summary = log.logUsageSummary(
@@ -133,7 +134,7 @@ describe("createLogger", () => {
 	});
 
 	test("logUsageSummary defaults to ** bold marker when formatBold is omitted", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		const summary = log.logUsageSummary(
 			{ id: "C" },
 			{
@@ -149,7 +150,7 @@ describe("createLogger", () => {
 	});
 
 	test("logUsageSummary includes cache + context window lines only when relevant", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		const summary = log.logUsageSummary(
 			{ id: "C" },
 			{
@@ -174,7 +175,7 @@ describe("createLogger", () => {
 	});
 
 	test("every context-tagged line starts with [HH:MM:SS]", () => {
-		const log = createLogger<TestCtx>({ formatContext });
+		const log = makeLogger();
 		log.logInfo("hello");
 		expect(line()).toMatch(/^\[\d{2}:\d{2}:\d{2}\] /);
 	});

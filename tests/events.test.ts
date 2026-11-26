@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -58,6 +58,17 @@ async function waitForDeletion(filePath: string): Promise<void> {
 	}
 	expect(existsSync(filePath)).toBe(false);
 }
+
+test("dispatch replaces the source filename and text types without flattening routing variants", () => {
+	type SourceEvent =
+		| { type: "immediate"; text: "ping"; name: "source"; chatId: number }
+		| { type: "one-shot"; text: "reminder"; at: string; channelId: string };
+	type DeliveredEvent = FiredEvent<SourceEvent>;
+	expectTypeOf<DeliveredEvent["text"]>().toEqualTypeOf<string>();
+	expectTypeOf<DeliveredEvent["name"]>().toEqualTypeOf<string>();
+	expectTypeOf<Extract<DeliveredEvent, { type: "immediate" }>["chatId"]>().toEqualTypeOf<number>();
+	expectTypeOf<Extract<DeliveredEvent, { type: "one-shot" }>["channelId"]>().toEqualTypeOf<string>();
+});
 
 describe("EventsWatcher immediate startup tolerance", () => {
 	for (const { name, ageMs, shouldDispatch } of [

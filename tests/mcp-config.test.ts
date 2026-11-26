@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, expectTypeOf, test } from "bun:test";
+import type { McpServerConfig } from "@earendil-works/pi-coding-agent";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -48,8 +49,10 @@ describe("loadBotMcpConfig", () => {
 				},
 			});
 
+			const loaded = loadBotMcpConfig(path);
+			expectTypeOf<(typeof loaded.servers)[number]["config"]>().toEqualTypeOf<McpServerConfig>();
 			// Loaded configs keep the alias spellings the SDK accepts but does not type.
-			expect(loadBotMcpConfig(path) as unknown).toEqual({
+			expect<unknown>(loaded).toEqual({
 				servers: [
 					{
 						name: "local",
@@ -86,6 +89,22 @@ describe("loadBotMcpConfig", () => {
 			const path = join(dir, "invalid-json.json");
 			writeFileSync(path, "{ invalid JSON");
 			expect(() => loadBotMcpConfig(path)).toThrow();
+		});
+	});
+
+	test("rejects non-finite timeouts in JSON", () => {
+		withTempDir((dir) => {
+			const path = join(dir, "mcp.json");
+			writeFileSync(path, '{"mcpServers":{"local":{"command":"server","timeout":1e400}}}');
+			expect(() => loadBotMcpConfig(path)).toThrow(/server "local".*timeout/);
+		});
+	});
+
+	test("malformed JSON errors do not quote credentials", () => {
+		withTempDir((dir) => {
+			const path = join(dir, "mcp.json");
+			writeFileSync(path, '{"headers":{"Authorization":secret-test-value}}');
+			expect(() => loadBotMcpConfig(path)).toThrow(new Error(`Invalid MCP config ${path}: invalid JSON`));
 		});
 	});
 

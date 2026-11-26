@@ -1,27 +1,18 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { readFile } from "fs/promises";
-import { join } from "path";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
-import { ensureTelegraphAccount, type TelegraphAccount } from "../telegraph/account.js";
-import { createPage, editPage, getPage, getPages } from "../telegraph/client.js";
+import { ensureTelegraphAccessToken, loadTelegraphAccessToken, telegraphAccountPath } from "../telegraph/account.js";
+import { createPage, editPage, getPages, getRenderablePage } from "../telegraph/client.js";
 import { parse } from "../telegraph/parser.js";
 import { serialize } from "../telegraph/serializer.js";
-import type { Node } from "../telegraph/types.js";
 
-async function loadAccount(workspace: string): Promise<TelegraphAccount> {
-	const file = join(workspace, ".telegraph.json");
-	try {
-		const text = await readFile(file, "utf8");
-		return JSON.parse(text) as TelegraphAccount;
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-			throw new Error(
-				`No telegraph account found at ${file}. Publish a page first via telegraph_publish, ` +
-					`or copy an existing .telegraph.json into the workspace.`,
-			);
-		}
-		throw err;
-	}
+async function requireAccessToken(workspace: string): Promise<string> {
+	const file = telegraphAccountPath(workspace);
+	const token = await loadTelegraphAccessToken(file);
+	if (token !== undefined) return token;
+	throw new Error(
+		`No telegraph account found at ${file}. Publish a page first via telegraph_publish, ` +
+				`or copy an existing .telegraph.json into the workspace.`,
+	);
 }
 
 /**
@@ -82,10 +73,10 @@ export function createTelegraphPublishTool(
 		execute: async (_toolCallId, { title, content, author_name }, signal) => {
 			signal?.throwIfAborted();
 
-			const account = await ensureTelegraphAccount(workspace, defaults);
+			const access_token = await ensureTelegraphAccessToken(workspace, defaults);
 			const nodes = parse(content);
 			const page = await createPage({
-				access_token: account.access_token,
+				access_token,
 				title,
 				content: nodes,
 				...(author_name ? { author_name } : {}),
@@ -132,13 +123,8 @@ export function createTelegraphGetTool(): AgentTool<typeof getSchema> {
 			signal?.throwIfAborted();
 
 			const path = extractPath(url_or_path);
-			const page = await getPage(path);
-			// Telegraph types content as `string | Node[]`. In practice the API
-			// returns Node[], but the string branch is part of the contract —
-			// re-parse it through our Markdown pipeline so callers always get
-			// a normalised Markdown string back.
-			const rawContent = page.content ?? [];
-			const nodes: Node[] = typeof rawContent === "string" ? parse(rawContent) : rawContent;
+			const page = await getRenderablePage(path);
+			const nodes = typeof page.content === "string" ? parse(page.content) : page.content ?? [];
 			const md = serialize(nodes);
 
 			const header = `# ${page.title}\n(path: ${page.path}, url: ${page.url}${page.can_edit ? ", editable" : ""})`;
@@ -197,11 +183,11 @@ export function createTelegraphEditTool(workspace: string): AgentTool<typeof edi
 		execute: async (_toolCallId, { url_or_path, title, content, author_name }, signal) => {
 			signal?.throwIfAborted();
 
-			const account = await loadAccount(workspace);
+			const access_token = await requireAccessToken(workspace);
 			const path = extractPath(url_or_path);
 			const nodes = parse(content);
 			const page = await editPage({
-				access_token: account.access_token,
+				access_token,
 				path,
 				title,
 				content: nodes,
@@ -250,10 +236,8 @@ export function createTelegraphListTool(workspace: string): AgentTool<typeof lis
 		execute: async (_toolCallId, { offset, limit }, signal) => {
 			signal?.throwIfAborted();
 
-			const account = await loadAccount(workspace);
-			const args: { access_token: string; offset?: number; limit?: number } = {
-				access_token: account.access_token,
-			};
+			const access_token = await requireAccessToken(workspace);
+			const args: { access_token: string; offset?: number; limit?: number } = { access_token };
 			if (offset !== undefined) args.offset = offset;
 			if (limit !== undefined) args.limit = limit;
 

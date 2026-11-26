@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createAccount, createPage, editPage, getPage, getPages } from "../src/telegraph/client.js";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from "bun:test";
+import { createAccount, createPage, editPage, getPage, getPages, type Page } from "pi-bot-core/telegraph";
 
 interface CapturedRequest {
 	url: string;
@@ -58,6 +58,13 @@ describe("createAccount", () => {
 		expect(captured?.headers["Content-Type"]).toBe("application/json");
 		expect(captured?.body).toEqual({ short_name: "n", author_name: "a" });
 		expect(result.access_token).toBe("tok");
+		expectTypeOf(result.auth_url).toEqualTypeOf<string>();
+	});
+
+	test("keeps the response unchanged when Telegraph omits the auth URL", async () => {
+		const result = { short_name: "n", author_name: "a", access_token: "tok" };
+		nextResponse = { body: { ok: true, result } };
+		expect<unknown>(await createAccount({ short_name: "n" })).toEqual(result);
 	});
 });
 
@@ -126,17 +133,40 @@ describe("getPage", () => {
 			},
 		};
 
-		await getPage("Foo-12-31");
+		const result = await getPage("Foo-12-31");
+		expectTypeOf(result).toEqualTypeOf<Page<true>>();
 
 		expect(captured?.url).toBe("https://api.telegra.ph/getPage");
 		expect(captured?.body).toEqual({ path: "Foo-12-31", return_content: true });
+	});
+
+	test("returns unmodified page metadata when the response has no body", async () => {
+		const result = { path: "p", url: "u", title: "t", description: "", views: 0 };
+		nextResponse = { body: { ok: true, result } };
+		expect<unknown>(await getPage("p")).toEqual(result);
+	});
+
+	test("preserves unsupported tags in the SDK response", async () => {
+		const content = [{ tag: "future-tag", children: ["preserved"] }];
+		nextResponse = { body: { ok: true, result: { path: "p", url: "u", title: "t", description: "", views: 0, content } } };
+		expect<unknown>((await getPage("p")).content).toEqual(content);
+	});
+
+	test("rejects malformed nested page content", async () => {
+		nextResponse = { body: { ok: true, result: {
+			path: "p", url: "u", title: "t", description: "", views: 0,
+			content: [{ tag: "p", children: [null] }],
+		} } };
+		await expect(getPage("p")).rejects.toThrow(/getPage.*invalid result/);
 	});
 
 	test("return_content=false is forwarded", async () => {
 		nextResponse = {
 			body: { ok: true, result: { path: "p", url: "u", title: "t", description: "", views: 0 } },
 		};
-		await getPage("p", false);
+		const result = await getPage("p", false);
+		expectTypeOf(result).toEqualTypeOf<Page<true>>();
+		expect(Object.hasOwn(result, "content")).toBe(false);
 		expect(captured?.body).toEqual({ path: "p", return_content: false });
 	});
 });
@@ -162,7 +192,7 @@ describe("getPages", () => {
 		expect(captured?.body).toEqual({ access_token: "tok", offset: 0, limit: 50 });
 		expect(result.total_count).toBe(2);
 		expect(result.pages).toHaveLength(2);
-		expect(result.pages[0].title).toBe("A");
+		expect(result.pages[0]?.title).toBe("A");
 	});
 
 	test("offset/limit are optional", async () => {
@@ -185,6 +215,16 @@ describe("error handling", () => {
 		await expect(createAccount({ short_name: "", author_name: "a" })).rejects.toThrow(
 			/SHORT_NAME_REQUIRED/,
 		);
+	});
+
+	test("rejects a non-boolean success flag", async () => {
+		nextResponse = { body: { ok: "yes", result: { short_name: "n", author_name: "a", access_token: "tok" } } };
+		await expect(createAccount({ short_name: "n" })).rejects.toThrow(/createAccount.*invalid response/);
+	});
+
+	test("rejects account results without an access token", async () => {
+		nextResponse = { body: { ok: true, result: { short_name: "n", author_name: "a" } } };
+		await expect(createAccount({ short_name: "n" })).rejects.toThrow(/createAccount.*invalid result/);
 	});
 
 	test("API ok=true with no result throws an explicit empty-result error", async () => {

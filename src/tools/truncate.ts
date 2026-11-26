@@ -11,16 +11,45 @@
 export const DEFAULT_MAX_LINES = 2000;
 export const DEFAULT_MAX_BYTES = 50 * 1024; // 50KB
 
-export interface TruncationResult {
+interface TruncationMetrics {
 	content: string;
-	truncated: boolean;
-	truncatedBy: "lines" | "bytes" | null;
 	totalLines: number;
 	totalBytes: number;
 	outputLines: number;
 	outputBytes: number;
+}
+
+type TruncationLimit =
+	| { truncatedBy: "lines"; lastLinePartial: false; firstLineExceedsLimit: false }
+	| { truncatedBy: "bytes"; lastLinePartial: true; firstLineExceedsLimit: false }
+	| { truncatedBy: "bytes"; lastLinePartial: false; firstLineExceedsLimit: boolean };
+
+/** Tool details also accept truncation metadata from the Pi SDK. */
+export interface TruncationResult extends TruncationMetrics {
+	truncated: boolean;
+	truncatedBy: "lines" | "bytes" | null;
 	lastLinePartial: boolean;
 	firstLineExceedsLimit: boolean;
+}
+
+type TruncationOutcome = TruncationMetrics & (
+	| { truncated: false; truncatedBy: null; lastLinePartial: false; firstLineExceedsLimit: false }
+	| ({ truncated: true } & TruncationLimit)
+);
+
+const LINE_LIMIT = { truncatedBy: "lines", lastLinePartial: false, firstLineExceedsLimit: false } satisfies TruncationLimit;
+const BYTE_LIMIT = { truncatedBy: "bytes", lastLinePartial: false, firstLineExceedsLimit: false } satisfies TruncationLimit;
+
+function untruncatedOutput(metrics: Pick<TruncationMetrics, "content" | "totalLines" | "totalBytes">): TruncationOutcome {
+	return {
+		...metrics,
+		truncated: false,
+		truncatedBy: null,
+		outputLines: metrics.totalLines,
+		outputBytes: metrics.totalBytes,
+		lastLinePartial: false,
+		firstLineExceedsLimit: false,
+	};
 }
 
 export interface TruncationOptions {
@@ -54,17 +83,7 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 	const totalLines = lines.length;
 
 	if (totalLines <= maxLines && totalBytes <= maxBytes) {
-		return {
-			content,
-			truncated: false,
-			truncatedBy: null,
-			totalLines,
-			totalBytes,
-			outputLines: totalLines,
-			outputBytes: totalBytes,
-			lastLinePartial: false,
-			firstLineExceedsLimit: false,
-		};
+		return untruncatedOutput({ content, totalLines, totalBytes });
 	}
 
 	const firstLine = lines[0] ?? "";
@@ -80,28 +99,24 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 			outputBytes: 0,
 			lastLinePartial: false,
 			firstLineExceedsLimit: true,
-		};
+		} satisfies TruncationOutcome;
 	}
 
 	const outputLinesArr: string[] = [];
 	let outputBytesCount = 0;
-	let truncatedBy: "lines" | "bytes" = "lines";
+	let limit: TruncationLimit = LINE_LIMIT;
 
 	for (let i = 0; i < lines.length && i < maxLines; i++) {
 		const line = lines[i] ?? "";
 		const lineBytes = Buffer.byteLength(line, "utf-8") + (i > 0 ? 1 : 0);
 
 		if (outputBytesCount + lineBytes > maxBytes) {
-			truncatedBy = "bytes";
+			limit = BYTE_LIMIT;
 			break;
 		}
 
 		outputLinesArr.push(line);
 		outputBytesCount += lineBytes;
-	}
-
-	if (outputLinesArr.length >= maxLines && outputBytesCount <= maxBytes) {
-		truncatedBy = "lines";
 	}
 
 	const outputContent = outputLinesArr.join("\n");
@@ -110,14 +125,12 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 	return {
 		content: outputContent,
 		truncated: true,
-		truncatedBy,
+		...limit,
 		totalLines,
 		totalBytes,
 		outputLines: outputLinesArr.length,
 		outputBytes: finalOutputBytes,
-		lastLinePartial: false,
-		firstLineExceedsLimit: false,
-	};
+	} satisfies TruncationOutcome;
 }
 
 /**
@@ -135,35 +148,23 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 	const totalLines = lines.length;
 
 	if (totalLines <= maxLines && totalBytes <= maxBytes) {
-		return {
-			content,
-			truncated: false,
-			truncatedBy: null,
-			totalLines,
-			totalBytes,
-			outputLines: totalLines,
-			outputBytes: totalBytes,
-			lastLinePartial: false,
-			firstLineExceedsLimit: false,
-		};
+		return untruncatedOutput({ content, totalLines, totalBytes });
 	}
 
 	const outputLinesArr: string[] = [];
 	let outputBytesCount = 0;
-	let truncatedBy: "lines" | "bytes" = "lines";
-	let lastLinePartial = false;
+	let limit: TruncationLimit = LINE_LIMIT;
 
 	for (let i = lines.length - 1; i >= 0 && outputLinesArr.length < maxLines; i--) {
 		const line = lines[i] ?? "";
 		const lineBytes = Buffer.byteLength(line, "utf-8") + (outputLinesArr.length > 0 ? 1 : 0);
 
 		if (outputBytesCount + lineBytes > maxBytes) {
-			truncatedBy = "bytes";
+			limit = BYTE_LIMIT;
 			if (outputLinesArr.length === 0) {
 				const truncatedLine = truncateStringToBytesFromEnd(line, maxBytes);
 				outputLinesArr.unshift(truncatedLine);
-				outputBytesCount = Buffer.byteLength(truncatedLine, "utf-8");
-				lastLinePartial = true;
+				limit = { ...BYTE_LIMIT, lastLinePartial: true };
 			}
 			break;
 		}
@@ -172,24 +173,18 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 		outputBytesCount += lineBytes;
 	}
 
-	if (outputLinesArr.length >= maxLines && outputBytesCount <= maxBytes) {
-		truncatedBy = "lines";
-	}
-
 	const outputContent = outputLinesArr.join("\n");
 	const finalOutputBytes = Buffer.byteLength(outputContent, "utf-8");
 
 	return {
 		content: outputContent,
 		truncated: true,
-		truncatedBy,
+		...limit,
 		totalLines,
 		totalBytes,
 		outputLines: outputLinesArr.length,
 		outputBytes: finalOutputBytes,
-		lastLinePartial,
-		firstLineExceedsLimit: false,
-	};
+	} satisfies TruncationOutcome;
 }
 
 /**

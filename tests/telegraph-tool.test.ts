@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createTelegraphPublishTool } from "../src/tools/telegraph.js";
@@ -67,10 +67,12 @@ describe("createTelegraphPublishTool", () => {
 			"https://api.telegra.ph/createPage",
 		]);
 
-		const createPage = calls[1].body as Record<string, unknown>;
-		expect(createPage.access_token).toBe("tok");
-		expect(createPage.title).toBe("Hello");
-		expect(createPage.content).toEqual([
+		const body = calls[1]?.body;
+		expect(body).toMatchObject({ access_token: "tok", title: "Hello" });
+		if (typeof body !== "object" || body === null || !("content" in body)) {
+			throw new Error("Expected createPage request content");
+		}
+		expect(body.content).toEqual([
 			{ tag: "p", children: ["Hello ", { tag: "strong", children: ["world"] }] },
 		]);
 
@@ -93,8 +95,21 @@ describe("createTelegraphPublishTool", () => {
 			undefined,
 		);
 
-		const createPage = calls.find((c) => c.url.endsWith("/createPage"))?.body as Record<string, unknown>;
-		expect(createPage.author_name).toBe("Custom");
+		const body = calls.find((c) => c.url.endsWith("/createPage"))?.body;
+		expect(body).toMatchObject({ author_name: "Custom" });
+	});
+
+	test("publishes with a copied account file that contains only an access token", async () => {
+		const path = join(ws, ".telegraph.json");
+		const saved = JSON.stringify({ access_token: "existing-token" });
+		writeFileSync(path, saved);
+
+		const tool = createTelegraphPublishTool(ws, { short_name: "unused", author_name: "unused" });
+		await tool.execute("publish", { label: "demo", title: "Hello", content: "Body" });
+
+		expect(calls.map((call) => call.url)).toEqual(["https://api.telegra.ph/createPage"]);
+		expect(calls[0]?.body).toMatchObject({ access_token: "existing-token" });
+		expect(readFileSync(path, "utf8")).toBe(saved);
 	});
 
 	test("does not re-create account when .telegraph.json exists", async () => {

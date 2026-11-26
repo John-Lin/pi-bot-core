@@ -7,6 +7,7 @@ import { type ExecOptions } from "../src/sandbox.js";
 import { HostExecutor } from "./helpers/host-executor.js";
 import { createBashTool } from "../src/tools/bash.js";
 import { createReadTool } from "../src/tools/read.js";
+import { firstToolText } from "./helpers/tool-result.js";
 
 let directory: string;
 let file: string;
@@ -34,8 +35,9 @@ test("bash returns truncated output when spilling fails", async () => {
 		label: "Produce long output",
 		command: longCommand,
 	});
-	expect(result.content[0]?.text).toContain("last\n");
-	expect(result.content[0]?.text).toContain("Full output could not be saved");
+	const text = firstToolText(result);
+	expect(text).toContain("last\n");
+	expect(text).toContain("Full output could not be saved");
 	expect(result.details?.fullOutputPath).toBeUndefined();
 });
 
@@ -51,7 +53,7 @@ test("bash only advertises a spill path supplied by its executor", async () => {
 	const tool = createBashTool({ exec: host.exec.bind(host), getWorkspacePath: host.getWorkspacePath.bind(host) });
 	const result = await tool.execute("bash", { label: "Generate output", command: longCommand });
 	try {
-		expect(result.content[0]?.text).toContain("Full output could not be saved");
+		expect(firstToolText(result)).toContain("Full output could not be saved");
 		expect(result.details?.fullOutputPath).toBeUndefined();
 	} finally {
 		const spill = result.details?.fullOutputPath;

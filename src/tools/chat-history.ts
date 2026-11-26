@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
-import type { LoggedMessage } from "../message-log.js";
+import { parseMessageLogEntry, type MessageLogEntry } from "../message-log.js";
+
+type HistoryMessage = Extract<MessageLogEntry, { kind: "message" }>;
 
 const chatHistorySchema = obj({
 	label: str({ description: "Brief description of what you're searching for (shown to user)" }),
@@ -49,11 +51,7 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 		description:
 			"Search older messages in the current conversation's log by free-text query and/or date range. Use this when context older than the active conversation window is needed. Edits and deletions are honoured (latest version per message; tombstoned messages excluded).",
 		parameters: chatHistorySchema,
-		execute: async (
-			_toolCallId: string,
-			args: { label: string; query?: string; after?: string; before?: string; limit?: number },
-			signal?: AbortSignal,
-		) => {
+		execute: async (_toolCallId, args, signal) => {
 			signal?.throwIfAborted?.();
 
 			const limit = Math.max(1, Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
@@ -63,18 +61,15 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 
 			const lastByTs = readLastByTs(opts.logFilePath);
 
-			const matches: LoggedMessage[] = [];
+			const matches: HistoryMessage[] = [];
 			for (const row of lastByTs.values()) {
-				if (row.isDeleted) continue;
+				if (row.kind === "deleted") continue;
 				if (!row.date) continue;
 				const ms = Date.parse(row.date);
 				if (Number.isNaN(ms)) continue;
 				if (after !== undefined && ms < after) continue;
 				if (before !== undefined && ms > before) continue;
-				if (query) {
-					const speaker = row.user === "bot" ? "assistant" : (row.displayName ?? row.userName ?? row.user);
-					if (!`${speaker}\n${row.text}`.toLowerCase().includes(query)) continue;
-				}
+				if (query && !`${row.speaker}\n${row.text}`.toLowerCase().includes(query)) continue;
 				matches.push(row);
 			}
 
@@ -101,8 +96,8 @@ function parseBound(name: "after" | "before", raw: string | undefined): number |
 	return ms;
 }
 
-function readLastByTs(logFilePath: string): Map<string, LoggedMessage> {
-	const lastByTs = new Map<string, LoggedMessage>();
+function readLastByTs(logFilePath: string): Map<string, MessageLogEntry> {
+	const lastByTs = new Map<string, MessageLogEntry>();
 	if (!existsSync(logFilePath)) return lastByTs;
 
 	let raw: string;
@@ -114,25 +109,12 @@ function readLastByTs(logFilePath: string): Map<string, LoggedMessage> {
 
 	for (const line of raw.split("\n")) {
 		if (!line) continue;
-		try {
-			const parsed = JSON.parse(line) as LoggedMessage;
-			if (!parsed.ts) continue;
-			// Trust LoggedMessage at the type level, but guard the one field we splice into the
-			// formatted output verbatim. A row missing `text` would render as "undefined" and
-			// also poison `query` matches on that string.
-			if (typeof parsed.text !== "string") continue;
-			lastByTs.set(parsed.ts, parsed);
-		} catch {
-			// malformed line — skip without aborting the run
-		}
+		const parsed = parseMessageLogEntry(line);
+		if (parsed) lastByTs.set(parsed.ts, parsed);
 	}
 	return lastByTs;
 }
 
-function formatRow(row: LoggedMessage): string {
-	if (row.user === "bot") {
-		return `- [${row.date}] assistant: ${row.text}`;
-	}
-	const speaker = row.displayName ?? row.userName ?? row.user;
-	return `- [${row.date}] ${speaker}: ${row.text}`;
+function formatRow(row: HistoryMessage): string {
+	return `- [${row.date}] ${row.speaker}: ${row.text}`;
 }

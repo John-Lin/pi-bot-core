@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { terminalOutput } from "./terminal-output.js";
 
 /**
  * Platform-agnostic logger factory.
@@ -23,6 +24,8 @@ export interface UsageTotals {
 export interface LoggerOptions<TLogContext> {
 	/** Format a context into the per-line `[prefix]` segment (e.g. `[mysrv#general:alice]`). */
 	formatContext: (ctx: TLogContext) => string;
+	/** Receives formatted lines; defaults to stdout. */
+	writeLine?: (line: string) => void;
 	/**
 	 * Markdown bold wrapper used in the string returned by {@link Logger.logUsageSummary}.
 	 * Defaults to `**text**` (Discord / CommonMark). Telegram bots pass a `*text*` wrapper.
@@ -80,9 +83,8 @@ function formatToolArgs(args: Record<string, unknown>): string {
 	for (const [key, value] of Object.entries(args)) {
 		if (key === "label") continue;
 		if (key === "path" && typeof value === "string") {
-			const offset = args.offset as number | undefined;
-			const limit = args.limit as number | undefined;
-			if (offset !== undefined && limit !== undefined) {
+			const { offset, limit } = args;
+			if (typeof offset === "number" && Number.isFinite(offset) && typeof limit === "number" && Number.isFinite(limit)) {
 				lines.push(`${value}:${offset}-${offset + limit}`);
 			} else {
 				lines.push(value);
@@ -108,95 +110,96 @@ function formatTokens(count: number): string {
 
 export function createLogger<TLogContext>(opts: LoggerOptions<TLogContext>): Logger<TLogContext> {
 	const formatContext = opts.formatContext;
+	const writeLine = opts.writeLine ?? ((line) => terminalOutput.log(line));
 	const bold = opts.formatBold ?? ((t: string) => `**${t}**`);
 
 	const logUserMessage: Logger<TLogContext>["logUserMessage"] = (ctx, text) => {
-		console.log(chalk.green(`${timestamp()} ${formatContext(ctx)} ${text}`));
+		writeLine(chalk.green(`${timestamp()} ${formatContext(ctx)} ${text}`));
 	};
 
 	const logToolStart: Logger<TLogContext>["logToolStart"] = (ctx, toolName, label, args) => {
 		const formattedArgs = formatToolArgs(args);
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ↳ ${toolName}: ${label}`));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ↳ ${toolName}: ${label}`));
 		if (formattedArgs) {
-			console.log(chalk.dim(indent(formattedArgs)));
+			writeLine(chalk.dim(indent(formattedArgs)));
 		}
 	};
 
 	const logToolSuccess: Logger<TLogContext>["logToolSuccess"] = (ctx, toolName, durationMs, result) => {
 		const duration = (durationMs / 1000).toFixed(1);
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✓ ${toolName} (${duration}s)`));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✓ ${toolName} (${duration}s)`));
 		const truncated = truncate(result, 1000);
 		if (truncated) {
-			console.log(chalk.dim(indent(truncated)));
+			writeLine(chalk.dim(indent(truncated)));
 		}
 	};
 
 	const logToolError: Logger<TLogContext>["logToolError"] = (ctx, toolName, durationMs, error) => {
 		const duration = (durationMs / 1000).toFixed(1);
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✗ ${toolName} (${duration}s)`));
-		console.log(chalk.dim(indent(truncate(error, 1000))));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✗ ${toolName} (${duration}s)`));
+		writeLine(chalk.dim(indent(truncate(error, 1000))));
 	};
 
 	const logLlmCallStart: Logger<TLogContext>["logLlmCallStart"] = (ctx) => {
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ⏱ Calling LLM API...`));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ⏱ Calling LLM API...`));
 	};
 
 	const logLlmCallEnd: Logger<TLogContext>["logLlmCallEnd"] = (ctx, durationMs) => {
 		const duration = (durationMs / 1000).toFixed(1);
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ← LLM API done (${duration}s total)`));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ← LLM API done (${duration}s total)`));
 	};
 
 	const logResponseStart: Logger<TLogContext>["logResponseStart"] = (ctx, ttftMs) => {
 		const suffix = ttftMs !== undefined ? ` (TTFT ${(ttftMs / 1000).toFixed(1)}s)` : "";
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} → Streaming response...${suffix}`));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} → Streaming response...${suffix}`));
 	};
 
 	const logThinking: Logger<TLogContext>["logThinking"] = (ctx, thinking) => {
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💭 Thinking`));
-		console.log(chalk.dim(indent(truncate(thinking, 1000))));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💭 Thinking`));
+		writeLine(chalk.dim(indent(truncate(thinking, 1000))));
 	};
 
 	const logResponse: Logger<TLogContext>["logResponse"] = (ctx, text) => {
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💬 Response`));
-		console.log(chalk.dim(indent(truncate(text, 1000))));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💬 Response`));
+		writeLine(chalk.dim(indent(truncate(text, 1000))));
 	};
 
 	const logDownloadStart: Logger<TLogContext>["logDownloadStart"] = (ctx, filename, localPath) => {
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ↓ Downloading attachment`));
-		console.log(chalk.dim(`           ${filename} → ${localPath}`));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ↓ Downloading attachment`));
+		writeLine(chalk.dim(`           ${filename} → ${localPath}`));
 	};
 
 	const logDownloadSuccess: Logger<TLogContext>["logDownloadSuccess"] = (ctx, sizeKB) => {
-		console.log(
+		writeLine(
 			chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✓ Downloaded (${sizeKB.toLocaleString()} KB)`),
 		);
 	};
 
 	const logDownloadError: Logger<TLogContext>["logDownloadError"] = (ctx, filename, error) => {
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✗ Download failed`));
-		console.log(chalk.dim(`           ${filename}: ${error}`));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✗ Download failed`));
+		writeLine(chalk.dim(`           ${filename}: ${error}`));
 	};
 
 	const logStopRequest: Logger<TLogContext>["logStopRequest"] = (ctx) => {
-		console.log(chalk.green(`${timestamp()} ${formatContext(ctx)} stop`));
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ⊗ Stop requested - aborting`));
+		writeLine(chalk.green(`${timestamp()} ${formatContext(ctx)} stop`));
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ⊗ Stop requested - aborting`));
 	};
 
 	const logInfo: Logger<TLogContext>["logInfo"] = (message) => {
-		console.log(chalk.blue(`${timestamp()} [system] ${message}`));
+		writeLine(chalk.blue(`${timestamp()} [system] ${message}`));
 	};
 
 	const logWarning: Logger<TLogContext>["logWarning"] = (message, details) => {
-		console.log(chalk.yellow(`${timestamp()} [system] ⚠ ${message}`));
+		writeLine(chalk.yellow(`${timestamp()} [system] ⚠ ${message}`));
 		if (details) {
-			console.log(chalk.dim(indent(details)));
+			writeLine(chalk.dim(indent(details)));
 		}
 	};
 
 	const logAgentError: Logger<TLogContext>["logAgentError"] = (ctx, error) => {
 		const context = ctx === "system" ? "[system]" : formatContext(ctx);
-		console.log(chalk.yellow(`${timestamp()} ${context} ✗ Agent error`));
-		console.log(chalk.dim(indent(error)));
+		writeLine(chalk.yellow(`${timestamp()} ${context} ✗ Agent error`));
+		writeLine(chalk.dim(indent(error)));
 	};
 
 	const logUsageSummary: Logger<TLogContext>["logUsageSummary"] = (
@@ -229,8 +232,8 @@ export function createLogger<TLogContext>(opts: LoggerOptions<TLogContext>): Log
 
 		const summary = lines.join("\n");
 
-		console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💰 Usage`));
-		console.log(
+		writeLine(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💰 Usage`));
+		writeLine(
 			chalk.dim(
 				`           ${usage.input.toLocaleString()} in + ${usage.output.toLocaleString()} out` +
 					(usage.cacheRead > 0 || usage.cacheWrite > 0

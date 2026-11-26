@@ -16,22 +16,10 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
-  "include": [
-    "src/**/*",
-    "tests/tool-schemas.test.ts",
-    "tests/events.test.ts",
-    "tests/events-lifecycle.test.ts",
-    "tests/system-prompt.test.ts",
-    "tests/vm-sandbox.test.ts",
-    "tests/sandbox-web-secrets.test.ts",
-    "tests/agent-extensions.test.ts",
-    "tests/progress.test.ts",
-    "tests/progress-sdk.test.ts",
-    "tests/mcp-config.test.ts",
-    "tests/mcp-oauth.test.ts",
-    "tests/helpers/**/*",
-    "tests/fixtures/**/*"
-  ]
+  "include": ["src/**/*", "tests/**/*"]
 }

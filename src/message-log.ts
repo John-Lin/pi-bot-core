@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "fs";
 import { appendFile } from "fs/promises";
 import { join } from "path";
+import { arr, bool, compile, lit, nullable, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 
 /**
  * Platform-agnostic message log used by all pi bots (mom/Slack, Telegram,
@@ -30,30 +31,35 @@ import { join } from "path";
  * edit state.
  */
 
-export interface Attachment {
+const attachmentSchema = obj({
 	/** Original filename supplied by the platform. */
-	original: string;
+	original: str(),
 	/** Path relative to `workingDir`, e.g. `"<id>/attachments/<file>"`. */
-	local: string;
-}
+	local: str(),
+}, { open: true });
 
-export interface LoggedMessage {
+const messageId = str({ minLength: 1 });
+const messageFields = {
 	/** ISO 8601. Auto-filled with current time when caller leaves it empty. */
-	date: string;
+	date: str(),
 	/** Platform-native message id (Slack ts, Telegram message_id, Discord snowflake). */
-	ts: string;
+	ts: messageId,
 	/** Platform user id, or `"bot"` for the bot's own replies. */
-	user: string;
-	userName?: string;
-	displayName?: string;
-	text: string;
-	attachments: Attachment[];
-	isBot: boolean;
+	user: str(),
+	text: str(),
+};
+
+const loggedMessageSchema = obj({
+	...messageFields,
+	userName: opt(str()),
+	displayName: opt(str()),
+	attachments: arr(attachmentSchema),
+	isBot: bool(),
 	/**
 	 * ISO 8601 of the platform-side edit. Present on rows that record an edit
 	 * (a second/later occurrence of the same `ts`). Absent on the original.
 	 */
-	editedAt?: string;
+	editedAt: opt(str()),
 	/**
 	 * Marks the row as a deletion tombstone for an earlier `ts`. Per the
 	 * multi-row contract, when the *last* row for a given `ts` has
@@ -62,7 +68,45 @@ export interface LoggedMessage {
 	 * tooling, etc. The earlier rows for that `ts` stay on disk so deletion
 	 * remains an additive log event, not a destructive rewrite.
 	 */
-	isDeleted?: boolean;
+	isDeleted: opt(bool()),
+}, { open: true });
+
+export type Attachment = Static<typeof attachmentSchema>;
+export type LoggedMessage = Static<typeof loggedMessageSchema>;
+
+// Readers validate their own projection so unrelated metadata cannot hide a message or invalidate a cursor.
+const cursor = compile(obj({ ts: messageId }, { open: true }));
+const deletion = compile(obj({ ts: messageId, isDeleted: lit(true) }, { open: true }));
+const historyMessageSchema = obj({
+	...messageFields,
+	user: opt(nullable(str())),
+	userName: opt(nullable(str())),
+	displayName: opt(nullable(str())),
+	isDeleted: opt(nullable(bool())),
+}, { open: true });
+const historyMessage = compile(historyMessageSchema);
+
+export type MessageLogEntry =
+	| { kind: "deleted"; ts: string }
+	| ({ kind: "message"; speaker: string } & Pick<Static<typeof historyMessageSchema>, "ts" | "date" | "text">);
+
+function parseLogRow(line: string): unknown {
+	try {
+		return JSON.parse(line);
+	} catch {
+		return undefined;
+	}
+}
+
+/** A deletion depends on the message identity, not on fields that are no longer displayed. */
+export function parseMessageLogEntry(line: string): MessageLogEntry | undefined {
+	const row = parseLogRow(line);
+	if (deletion.check(row)) return { kind: "deleted", ts: row.ts };
+	if (!historyMessage.check(row)) return undefined;
+	const { ts, date, text, user, userName, displayName } = row;
+	const speaker = user === "bot" ? "assistant" : displayName ?? userName ?? user;
+	if (speaker == null) return undefined;
+	return { kind: "message", ts, date, text, speaker };
 }
 
 export interface MessageLogConfig {
@@ -147,8 +191,8 @@ export class MessageLog {
 			const lines = content.split("\n");
 			const lastLine = lines[lines.length - 1];
 			if (!lastLine) return null;
-			const last = JSON.parse(lastLine) as LoggedMessage;
-			return last.ts;
+			const row = parseLogRow(lastLine);
+			return cursor.check(row) ? row.ts : null;
 		} catch {
 			return null;
 		}

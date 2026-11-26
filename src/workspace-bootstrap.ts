@@ -9,6 +9,7 @@ import {
 	writeFileSync,
 } from "fs";
 import { join, parse, resolve, sep } from "path";
+import { fsErrorCode } from "./fs-errors.js";
 
 const MAX_BOOTSTRAP_FILE_CHARS = 20_000;
 
@@ -52,7 +53,7 @@ export function ensureWorkspaceBootstrap(workspace: string): void {
 		try {
 			writeFileSync(join(workspace, name), starter, { flag: "wx" });
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+			if (fsErrorCode(error) !== "EEXIST") throw error;
 		}
 	}
 }
@@ -80,7 +81,7 @@ function inspectWorkspacePath(workspace: string, rejectUnsafe = false): PathIden
 			}
 			identities.push({ path: current, device: stats.dev, inode: stats.ino });
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+			if (fsErrorCode(error) === "ENOENT") return undefined;
 			throw error;
 		}
 	}
@@ -97,7 +98,7 @@ function workspacePathIsUnchanged(identities: PathIdentity[]): boolean {
 				stats.ino === identity.inode;
 		});
 	} catch (error) {
-		if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+		if (["ENOENT", "ENOTDIR"].includes(fsErrorCode(error) ?? "")) return false;
 		throw error;
 	}
 }
@@ -121,7 +122,7 @@ function readBoundedUtf8(fd: number, fileSize: number, maxChars: number): {
 }
 
 function assertNoFollowSupport(): number {
-	const noFollow = constants.O_NOFOLLOW as number | undefined;
+	const noFollow = constants.O_NOFOLLOW;
 	if (typeof noFollow !== "number" || noFollow === 0) throw new WorkspaceBootstrapSecurityError();
 	return noFollow;
 }
@@ -155,7 +156,7 @@ export function readWorkspaceBootstrap(workspace: string, visibleWorkspace?: str
 				}
 			}
 		} catch (error) {
-			if (!["ENOENT", "ELOOP", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+			if (!["ENOENT", "ELOOP", "ENOTDIR"].includes(fsErrorCode(error) ?? "")) throw error;
 		} finally {
 			if (fd !== undefined) closeSync(fd);
 		}

@@ -285,7 +285,8 @@ describe("createBotAgentExtensions MCP exposure", () => {
 		test(`keeps ${exposure} tools reachable only through their configured exposure`, async () => {
 			const server = httpServer();
 			const configPath = join(env.root, "mcp.json");
-			writeFileSync(configPath, JSON.stringify({ mcpServers: { remote: { url: server.url, exposure } } }));
+			const type = exposure === "codemode-deferred" ? "streamable-http" : undefined;
+			writeFileSync(configPath, JSON.stringify({ mcpServers: { remote: { type, url: server.url, exposure } } }));
 			const bot = await start({ mcp: loadBotMcpConfig(configPath) });
 
 			const outcome = await runCodemode(bot.session, 'return await tools.mcp__remote__echo_http({ text: "exposure" });');
