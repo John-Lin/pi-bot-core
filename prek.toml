@@ -9,3 +9,18 @@ language = "system"
 stages = ["pre-commit"]
 always_run = true
 pass_filenames = false
+
+[[repos.hooks]]
+id = "lint"
+name = "Oxlint (source files)"
+entry = "bunx --no-install oxlint"
+language = "system"
+stages = ["pre-commit"]
+files = '^src/.*\.ts$'
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "check-merge-conflict", args = ["--assume-in-merge"] },
+  { id = "detect-private-key" },
+]

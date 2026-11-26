@@ -24,6 +24,7 @@
     "./telegraph": "./src/telegraph/index.ts"
   },
   "scripts": {
+    "lint": "oxlint src",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
@@ -34,6 +35,7 @@
     "@earendil-works/pi-mcp": "^1.5.0",
     "@types/bun": "latest",
     "@types/diff": "^7.0.2",
+    "oxlint": "1.95.0",
     "typescript": "^5.7.0"
   },
   "peerDependencies": {

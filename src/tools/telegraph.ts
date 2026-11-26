@@ -4,7 +4,6 @@ import { ensureTelegraphAccount, loadTelegraphAccount, telegraphAccountPath, typ
 import { createPage, editPage, getPage, getPages } from "../telegraph/client.js";
 import { parse } from "../telegraph/parser.js";
 import { serialize } from "../telegraph/serializer.js";
-import type { Node } from "../telegraph/types.js";
 
 async function loadAccount(workspace: string): Promise<TelegraphAccount> {
 	const file = telegraphAccountPath(workspace);

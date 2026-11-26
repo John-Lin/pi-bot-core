@@ -460,11 +460,12 @@ Both VM backends use `qemu-img` for copy-on-write disks. Put it on the bot's `PA
 
 ```sh
 bun --no-env-file install --frozen-lockfile
+bun --no-env-file run lint
 bun --no-env-file run typecheck
 bun test --no-env-file
 ```
 
-Install [prek](https://github.com/j178/prek) (for example, `brew install prek` on macOS), then run `prek install` once per clone after installing dependencies. The pre-commit hook runs the full TypeScript check on every commit. To run it manually, use `prek run --all-files typecheck`.
+Install [prek](https://github.com/j178/prek) (for example, `brew install prek` on macOS), then run `prek install` once per clone after installing dependencies. On commit, prek runs the full TypeScript check, lints staged TypeScript files under `src/`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. Run `prek run --all-files` to check the repository manually; CI lints all of `src/`.
 
 CI runs the real-VM tests on QEMU only. Before running real-VM tests locally, prepare the pinned image by calling `validateVMSandbox()` for QEMU or `validateVMSandbox({ backend: "krun" })` for krun. On a suitable host, opt in to the krun tests with `PI_BOT_TEST_VM_SANDBOX_KRUN=1 bun test tests/vm-sandbox.test.ts -t 'krun turn'`.
 
