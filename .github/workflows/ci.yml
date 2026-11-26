@@ -31,6 +31,21 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Enable KVM for the QEMU tests
+        run: |
+          if [ ! -c /dev/kvm ]; then
+            echo "::warning::/dev/kvm is unavailable; Gondolin will use software emulation"
+          else
+            # Gondolin uses KVM only when the runner user can read and write the device.
+            if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+              echo "Granting the runner user access to /dev/kvm"
+              sudo setfacl -m "u:$(id -u):rw" /dev/kvm
+            fi
+            test -r /dev/kvm
+            test -w /dev/kvm
+            echo "The runner can use /dev/kvm"
+          fi
+
       - name: Prepare the VM sandbox with QEMU
         run: |
           sudo apt-get update
