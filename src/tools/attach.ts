@@ -57,11 +57,7 @@ export function createAttachTool(): AttachToolHandle {
 		description:
 			"Attach a file to your response. Use this to share files, images, or documents with the user. The path must be absolute and should point to a file under your workspace root.",
 		parameters: attachSchema,
-		execute: async (
-			_toolCallId: string,
-			{ label, path, title }: { label: string; path: string; title?: string },
-			signal?: AbortSignal,
-		) => {
+		execute: async (_toolCallId, { label, path, title }, signal) => {
 			signal?.throwIfAborted();
 
 			if (!uploader) {
@@ -77,7 +73,7 @@ export function createAttachTool(): AttachToolHandle {
 			await uploader(path, { label, fileName });
 
 			return {
-				content: [{ type: "text" as const, text: `Attached ${fileName}` }],
+				content: [{ type: "text", text: `Attached ${fileName}` }],
 				details: undefined,
 			};
 		},
