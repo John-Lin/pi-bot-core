@@ -22,6 +22,12 @@ describe("buildEventPayload", () => {
 		expect(json.threadId).toBe(42);
 	});
 
+	test.each(["type", "text", "at", "schedule", "timezone"])("rejects reserved routing field %s", (field) => {
+		expect(() => buildEventPayload({
+			label: "x", type: "immediate", text: "hi", routing: { chatId: 1, [field]: "unexpected" },
+		}, NOW)).toThrow(`reserved routing field '${field}'`);
+	});
+
 	test("immediate: rejects 'at'", () => {
 		expect(() =>
 			buildEventPayload(

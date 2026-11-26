@@ -1,7 +1,8 @@
 import { Cron } from "croner";
 import { existsSync, type FSWatcher, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { readFile } from "fs/promises";
-import { join } from "path";
+import { basename, join } from "path";
+import { fsErrorCode } from "./fs-errors.js";
 import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "./fs-watch.js";
 import type { ScheduleEventType } from "./tools/schedule.js";
 
@@ -75,7 +76,7 @@ export interface EventsPolicy<TEvent extends ScheduledEventCommon> {
 	 * messages.
 	 */
 	queueKey: (event: TEvent) => string | number;
-	/** Optional structured logger. Defaults to console.{info,warn}. */
+	/** Optional logger. Defaults to stdout for info and stderr for warnings. */
 	log?: EventsLogger;
 }
 
@@ -90,19 +91,25 @@ const MAX_QUEUED = 5;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const IMMEDIATE_STALE_TOLERANCE_MS = 5 * 60 * 1000;
 
-const consoleLogger: EventsLogger = {
-	info: (msg) => console.log(msg),
-	warn: (msg, detail) => console.warn(detail ? `${msg}: ${detail}` : msg),
+type EventFilename = string & { readonly __brand: "EventFilename" };
+
+function isEventFilename(value: string | null): value is EventFilename {
+	return value !== null && value.endsWith(".json") && basename(value) === value && !value.includes("\0");
+}
+
+const terminalLogger: EventsLogger = {
+	info: (msg) => { process.stdout.write(`${msg}\n`); },
+	warn: (msg, detail) => { process.stderr.write(detail ? `${msg}: ${detail}\n` : `${msg}\n`); },
 };
 
 export class EventsWatcher<TEvent extends ScheduledEventCommon> {
-	private timers: Map<string, NodeJS.Timeout> = new Map();
-	private crons: Map<string, Cron> = new Map();
-	private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+	private timers: Map<EventFilename, NodeJS.Timeout> = new Map();
+	private crons: Map<EventFilename, Cron> = new Map();
+	private debounceTimers: Map<EventFilename, NodeJS.Timeout> = new Map();
 	private startTime: number;
 	private watcher: FSWatcher | null = null;
 	private watcherRetryTimer: NodeJS.Timeout | null = null;
-	private knownFiles: Set<string> = new Set();
+	private knownFiles: Set<EventFilename> = new Set();
 	private stopped = true;
 	/** Identifies the start/stop lifecycle that owns asynchronous work. */
 	private generation = 0;
@@ -116,7 +123,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		private policy: EventsPolicy<TEvent>,
 	) {
 		this.startTime = Date.now();
-		this.log = policy.log ?? consoleLogger;
+		this.log = policy.log ?? terminalLogger;
 	}
 
 	start(): void {
@@ -171,7 +178,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		this.watcher = watchWithErrorHandler(
 			this.eventsDir,
 			(_eventType, filename) => {
-				if (!filename || !filename.endsWith(".json")) return;
+				if (!isEventFilename(filename)) return;
 				this.debounce(filename, generation, () => this.handleFileChange(filename, generation));
 			},
 			() => this.handleFsWatcherError(generation),
@@ -195,7 +202,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}, FS_WATCH_RETRY_DELAY_MS);
 	}
 
-	private debounce(filename: string, generation: number, fn: () => void): void {
+	private debounce(filename: EventFilename, generation: number, fn: () => void): void {
 		if (!this.isActive(generation)) return;
 		const existing = this.debounceTimers.get(filename);
 		if (existing) clearTimeout(existing);
@@ -211,9 +218,9 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 
 	private scanExisting(generation: number): void {
 		if (!this.isActive(generation)) return;
-		let files: string[];
+		let files: EventFilename[];
 		try {
-			files = readdirSync(this.eventsDir).filter((f) => f.endsWith(".json"));
+			files = readdirSync(this.eventsDir).filter(isEventFilename);
 		} catch (err) {
 			this.log.warn("Failed to read events directory", String(err));
 			return;
@@ -223,9 +230,9 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 
 	private rescanExisting(generation: number): void {
 		if (!this.isActive(generation)) return;
-		let files: string[];
+		let files: EventFilename[];
 		try {
-			files = readdirSync(this.eventsDir).filter((f) => f.endsWith(".json"));
+			files = readdirSync(this.eventsDir).filter(isEventFilename);
 		} catch (err) {
 			this.log.warn("Failed to read events directory", String(err));
 			return;
@@ -237,7 +244,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private handleFileChange(filename: string, generation: number): void {
+	private handleFileChange(filename: EventFilename, generation: number): void {
 		if (!this.isActive(generation)) return;
 		const filePath = join(this.eventsDir, filename);
 		if (!existsSync(filePath)) {
@@ -250,14 +257,14 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private handleDelete(filename: string): void {
+	private handleDelete(filename: EventFilename): void {
 		if (!this.knownFiles.has(filename)) return;
 		this.log.info(`Event file deleted: ${filename}`);
 		this.cancelScheduled(filename);
 		this.knownFiles.delete(filename);
 	}
 
-	private cancelScheduled(filename: string): void {
+	private cancelScheduled(filename: EventFilename): void {
 		const timer = this.timers.get(filename);
 		if (timer) {
 			clearTimeout(timer);
@@ -270,7 +277,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private async handleFile(filename: string, generation: number): Promise<void> {
+	private async handleFile(filename: EventFilename, generation: number): Promise<void> {
 		const filePath = join(this.eventsDir, filename);
 
 		// Parse with retries — fs.watch may fire mid-write.
@@ -316,7 +323,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private handleImmediate(filename: string, event: TEvent, generation: number): void {
+	private handleImmediate(filename: EventFilename, event: TEvent, generation: number): void {
 		const filePath = join(this.eventsDir, filename);
 		// Allow recent pre-start signals so short outages don't discard them.
 		try {
@@ -333,7 +340,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		void this.execute(filename, event, generation);
 	}
 
-	private handleOneShot(filename: string, event: TEvent, generation: number): void {
+	private handleOneShot(filename: EventFilename, event: TEvent, generation: number): void {
 		if (!event.at) {
 			this.log.warn(`One-shot event missing 'at', deleting: ${filename}`);
 			this.deleteFile(filename);
@@ -370,7 +377,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		arm(delay);
 	}
 
-	private handlePeriodic(filename: string, event: TEvent, generation: number): void {
+	private handlePeriodic(filename: EventFilename, event: TEvent, generation: number): void {
 		if (!event.schedule || !event.timezone) {
 			this.log.warn(`Periodic event missing schedule/timezone, deleting: ${filename}`);
 			this.deleteFile(filename);
@@ -393,7 +400,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private async execute(filename: string, event: TEvent, generation: number, deleteAfter: boolean = true): Promise<void> {
+	private async execute(filename: EventFilename, event: TEvent, generation: number, deleteAfter: boolean = true): Promise<void> {
 		if (!this.isActive(generation)) return;
 		const scheduleInfo =
 			event.type === "immediate"
@@ -417,7 +424,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		if (deleteAfter) this.deleteFile(filename);
 
 		try {
-			await this.dispatcher({ ...event, name: filename, text } as FiredEvent<TEvent>);
+			await this.dispatcher({ ...event, name: filename, text });
 		} catch (err) {
 			this.log.warn(
 				`Dispatcher failed for event ${filename}`,
@@ -432,12 +439,12 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private deleteFile(filename: string): void {
+	private deleteFile(filename: EventFilename): void {
 		const filePath = join(this.eventsDir, filename);
 		try {
 			unlinkSync(filePath);
 		} catch (err) {
-			if (err instanceof Error && "code" in err && err.code !== "ENOENT") {
+			if (fsErrorCode(err) !== "ENOENT") {
 				this.log.warn(`Failed to delete event file: ${filename}`, String(err));
 			}
 		}
