@@ -3,24 +3,26 @@ import { Cron } from "croner";
 import { randomBytes } from "crypto";
 import { closeSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import { compile, obj, oneOf, opt, str, type Schema, type Static } from "@earendil-works/pi-schema";
+import { compile, nullable, obj, oneOf, opt, str, type Schema, type Static } from "@earendil-works/pi-schema";
 
 const scheduleEventType = oneOf(["immediate", "one-shot", "periodic"]);
 export type ScheduleEventType = Static<typeof scheduleEventType>;
 
+const optionalScheduleText = opt(nullable(str()));
 const scheduleFieldsSchema = obj({
 	type: scheduleEventType,
 	text: str(),
-	at: opt(str()),
-	schedule: opt(str()),
-	timezone: opt(str()),
-	name: opt(str()),
+	at: optionalScheduleText,
+	schedule: optionalScheduleText,
+	timezone: optionalScheduleText,
+	name: optionalScheduleText,
 }, { open: true });
 
 type ScheduleFields = Static<typeof scheduleFieldsSchema>;
+type DirectScheduleFields = { [Key in keyof ScheduleFields]: Exclude<ScheduleFields[Key], null> };
 
 /** Platform-agnostic arguments for building an event payload directly. */
-export interface CommonScheduleArgs extends ScheduleFields {
+export interface CommonScheduleArgs extends DirectScheduleFields {
 	label: string;
 }
 

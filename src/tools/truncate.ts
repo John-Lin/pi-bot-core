@@ -24,7 +24,15 @@ type TruncationLimit =
 	| { truncatedBy: "bytes"; lastLinePartial: true; firstLineExceedsLimit: false }
 	| { truncatedBy: "bytes"; lastLinePartial: false; firstLineExceedsLimit: boolean };
 
-export type TruncationResult = TruncationMetrics & (
+/** Tool details also accept truncation metadata from the Pi SDK. */
+export interface TruncationResult extends TruncationMetrics {
+	truncated: boolean;
+	truncatedBy: "lines" | "bytes" | null;
+	lastLinePartial: boolean;
+	firstLineExceedsLimit: boolean;
+}
+
+type TruncationOutcome = TruncationMetrics & (
 	| { truncated: false; truncatedBy: null; lastLinePartial: false; firstLineExceedsLimit: false }
 	| ({ truncated: true } & TruncationLimit)
 );
@@ -32,7 +40,7 @@ export type TruncationResult = TruncationMetrics & (
 const LINE_LIMIT = { truncatedBy: "lines", lastLinePartial: false, firstLineExceedsLimit: false } satisfies TruncationLimit;
 const BYTE_LIMIT = { truncatedBy: "bytes", lastLinePartial: false, firstLineExceedsLimit: false } satisfies TruncationLimit;
 
-function untruncatedOutput(metrics: Pick<TruncationMetrics, "content" | "totalLines" | "totalBytes">): TruncationResult {
+function untruncatedOutput(metrics: Pick<TruncationMetrics, "content" | "totalLines" | "totalBytes">): TruncationOutcome {
 	return {
 		...metrics,
 		truncated: false,
@@ -91,7 +99,7 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 			outputBytes: 0,
 			lastLinePartial: false,
 			firstLineExceedsLimit: true,
-		};
+		} satisfies TruncationOutcome;
 	}
 
 	const outputLinesArr: string[] = [];
@@ -122,7 +130,7 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 		totalBytes,
 		outputLines: outputLinesArr.length,
 		outputBytes: finalOutputBytes,
-	};
+	} satisfies TruncationOutcome;
 }
 
 /**
@@ -176,7 +184,7 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 		totalBytes,
 		outputLines: outputLinesArr.length,
 		outputBytes: finalOutputBytes,
-	};
+	} satisfies TruncationOutcome;
 }
 
 /**
