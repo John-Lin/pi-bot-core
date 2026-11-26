@@ -1,13 +1,20 @@
 import { createHttpHooks } from "@earendil-works/gondolin";
+import { arr, compile, map, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 import { SandboxConfigError } from "./sandbox.js";
 
-export interface SandboxWebSecret {
+const secretSchema = obj({
 	/** Host-only value. An absent or blank value disables this secret. */
-	value?: string;
-	hosts: readonly string[];
-}
+	value: opt(str()),
+	hosts: arr(str(), { minItems: 1 }),
+});
 
-export type ActiveSandboxWebSecret = SandboxWebSecret & { env: string; value: string };
+type SecretFields = Static<typeof secretSchema>;
+export type SandboxWebSecret = Omit<SecretFields, "hosts"> & { hosts: Readonly<SecretFields["hosts"]> };
+
+type SecretEnvName = string & { readonly __brand: "SecretEnvName" };
+export type ActiveSandboxWebSecret = SandboxWebSecret & { env: SecretEnvName; value: string };
+
+const secretConfig = compile(map(secretSchema));
 
 const ROUTING_HEADERS = new Set([
 	"connection", "content-length", "forwarded", "host", "keep-alive", "proxy-authorization", "proxy-connection",
@@ -18,29 +25,30 @@ function invalidSecret(reason: string): never {
 	throw new SandboxConfigError(`Invalid sandbox web secret: ${reason}`);
 }
 
+function isSecretEnvName(name: string): name is SecretEnvName {
+	return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && name.toLowerCase() !== "__proto__";
+}
+
 /** Validate the scope even for disabled secrets, without logging config values. */
-export function normalizeSandboxWebSecrets(config: Readonly<Record<string, SandboxWebSecret>> = {}): ActiveSandboxWebSecret[] {
-	if (!config || typeof config !== "object" || Array.isArray(config)) invalidSecret("expected a map keyed by environment variable");
+export function normalizeSandboxWebSecrets(config: unknown = {}): ActiveSandboxWebSecret[] {
+	if (!secretConfig.check(config)) {
+		invalidSecret("expected a map of environment variables to nonempty hostname lists and optional string values");
+	}
 	const names = new Set<string>();
 	const secrets: ActiveSandboxWebSecret[] = [];
 	for (const [env, secret] of Object.entries(config)) {
 		const name = env.toLowerCase();
-		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(env) || name === "__proto__" || names.has(name)) {
+		if (!isSecretEnvName(env) || names.has(name)) {
 			invalidSecret("expected distinct environment variable names");
 		}
 		names.add(name);
-		if (!secret || Object.keys(secret).some((key) => key !== "hosts" && key !== "value")) {
-			invalidSecret("expected only hosts and an optional value");
-		}
-		if (!Array.isArray(secret.hosts) || secret.hosts.length === 0) invalidSecret("expected at least one exact hostname");
-		const hosts = secret.hosts.map((raw: string) => {
-			const hostname = typeof raw === "string" ? raw.toLowerCase() : "";
+		const hosts = secret.hosts.map((raw) => {
+			const hostname = raw.toLowerCase();
 			if (!/^[a-z0-9.-]+$/.test(hostname) || URL.parse(`https://${hostname}`)?.hostname !== hostname || hostname.endsWith(".")) {
 				invalidSecret("use exact hostnames without wildcards, ports, or paths");
 			}
 			return hostname;
 		});
-		if (secret.value !== undefined && typeof secret.value !== "string") invalidSecret("expected a string value");
 		const value = secret.value?.trim();
 		if (value) {
 			if (!/^[\x20-\x7e]+$/.test(value)) invalidSecret("expected a value safe for an HTTP header");
@@ -63,6 +71,11 @@ export function createSandboxWebSecretHooks(secrets: readonly ActiveSandboxWebSe
 		secretPlaceholderMode: "unique",
 		secrets: Object.fromEntries(secrets.map(({ env, value, hosts }) => [env, { value, hosts: [...hosts] }])),
 	});
+	const scopedSecrets = secrets.map((secret) => {
+		const placeholder = env[secret.env];
+		if (!placeholder) invalidSecret("expected a generated placeholder for each enabled credential");
+		return { ...secret, placeholder };
+	});
 	const substitute = httpHooks.onRequest;
 	httpHooks.onRequest = (request) => {
 		const url = new URL(request.url);
@@ -72,12 +85,11 @@ export function createSandboxWebSecretHooks(secrets: readonly ActiveSandboxWebSe
 		let usesSecret = false;
 		for (const [name, value] of request.headers) {
 			const basic = decodeBasic(name, value);
-			for (const secret of secrets) {
+			for (const { value: secret, placeholder, hosts } of scopedSecrets) {
 				// Redirected requests can retain plaintext or Basic-encoded credentials.
-				if (value.includes(secret.value) || basic?.includes(secret.value)) return denied();
-				const placeholder = env[secret.env]!;
+				if (value.includes(secret) || basic?.includes(secret)) return denied();
 				if (!value.includes(placeholder) && !basic?.includes(placeholder)) continue;
-				if (!secureAuthority || !secret.hosts.includes(url.hostname) || ROUTING_HEADERS.has(name)) return denied();
+				if (!secureAuthority || !hosts.includes(url.hostname) || ROUTING_HEADERS.has(name)) return denied();
 				usesSecret = true;
 			}
 		}

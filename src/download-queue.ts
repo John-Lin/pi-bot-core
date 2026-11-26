@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, statSync } from "fs";
 import { join } from "path";
+import type { Logger } from "./log.js";
 
 /**
  * Sequential background download queue.
@@ -16,11 +17,8 @@ import { join } from "path";
  * everything else.
  */
 
-export interface DownloadQueueLogger<TLogContext> {
-	logDownloadStart(ctx: TLogContext, filename: string, localPath: string): void;
-	logDownloadSuccess(ctx: TLogContext, sizeKB: number): void;
-	logDownloadError(ctx: TLogContext, filename: string, error: string): void;
-}
+export type DownloadQueueLogger<TLogContext> = Pick<Logger<TLogContext>,
+	"logDownloadStart" | "logDownloadSuccess" | "logDownloadError">;
 
 export interface DownloadItem<TLogContext> {
 	/** Opaque key passed to `downloadFile` (URL, Telegram file_id, …). */
@@ -45,7 +43,7 @@ export class DownloadQueue<TLogContext> {
 	private pending: DownloadItem<TLogContext>[] = [];
 	private runner: Promise<void> | null = null;
 	private workingDir: string;
-	private downloadFile: (source: string, destPath: string) => Promise<void>;
+	private downloadFile: DownloadQueueConfig<TLogContext>["downloadFile"];
 	private log: DownloadQueueLogger<TLogContext>;
 
 	constructor(config: DownloadQueueConfig<TLogContext>) {
