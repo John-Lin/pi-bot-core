@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
-import type { LoggedMessage } from "../message-log.js";
+import { parseLoggedMessage, type LoggedMessage } from "../message-log.js";
 
 const chatHistorySchema = obj({
 	label: str({ description: "Brief description of what you're searching for (shown to user)" }),
@@ -49,11 +49,7 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 		description:
 			"Search older messages in the current conversation's log by free-text query and/or date range. Use this when context older than the active conversation window is needed. Edits and deletions are honoured (latest version per message; tombstoned messages excluded).",
 		parameters: chatHistorySchema,
-		execute: async (
-			_toolCallId: string,
-			args: { label: string; query?: string; after?: string; before?: string; limit?: number },
-			signal?: AbortSignal,
-		) => {
+		execute: async (_toolCallId, args, signal) => {
 			signal?.throwIfAborted?.();
 
 			const limit = Math.max(1, Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
@@ -114,17 +110,8 @@ function readLastByTs(logFilePath: string): Map<string, LoggedMessage> {
 
 	for (const line of raw.split("\n")) {
 		if (!line) continue;
-		try {
-			const parsed = JSON.parse(line) as LoggedMessage;
-			if (!parsed.ts) continue;
-			// Trust LoggedMessage at the type level, but guard the one field we splice into the
-			// formatted output verbatim. A row missing `text` would render as "undefined" and
-			// also poison `query` matches on that string.
-			if (typeof parsed.text !== "string") continue;
-			lastByTs.set(parsed.ts, parsed);
-		} catch {
-			// malformed line — skip without aborting the run
-		}
+		const parsed = parseLoggedMessage(line);
+		if (parsed) lastByTs.set(parsed.ts, parsed);
 	}
 	return lastByTs;
 }

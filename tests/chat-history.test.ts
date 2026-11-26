@@ -290,6 +290,18 @@ describe("createChatHistoryTool", () => {
 		expect(result.details).toEqual({ count: 0 });
 	});
 
+	test("invalid edit rows do not replace a valid message", async () => {
+		const message = row({ date: "2026-04-30T10:00:00.000Z", ts: "1", user: "u", text: "original" });
+		const invalidEdit = { ...message, user: { id: "u" }, text: "malformed edit" };
+		writeFileSync(logPath, `${JSON.stringify(message)}\n${JSON.stringify(invalidEdit)}\n`);
+		const result = await run();
+		const content = result.content[0];
+		if (content?.type !== "text") throw new Error("Expected chat history text");
+		expect(content.text).toContain("original");
+		expect(content.text).not.toContain("malformed edit");
+		expect(result.details).toEqual({ count: 1 });
+	});
+
 	test("rows missing a string `text` field are skipped", async () => {
 		const valid = JSON.stringify(row({ date: "2026-04-30T10:00:00.000Z", ts: "1", user: "u", text: "ok" }));
 		// Bypass our `row()` helper to write a row with missing/non-string text — simulates

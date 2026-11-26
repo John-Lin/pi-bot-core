@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "fs";
 import { appendFile } from "fs/promises";
 import { join } from "path";
+import { arr, bool, compile, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 
 /**
  * Platform-agnostic message log used by all pi bots (mom/Slack, Telegram,
@@ -30,30 +31,30 @@ import { join } from "path";
  * edit state.
  */
 
-export interface Attachment {
+const attachmentSchema = obj({
 	/** Original filename supplied by the platform. */
-	original: string;
+	original: str(),
 	/** Path relative to `workingDir`, e.g. `"<id>/attachments/<file>"`. */
-	local: string;
-}
+	local: str(),
+}, { open: true });
 
-export interface LoggedMessage {
+const loggedMessageSchema = obj({
 	/** ISO 8601. Auto-filled with current time when caller leaves it empty. */
-	date: string;
+	date: str(),
 	/** Platform-native message id (Slack ts, Telegram message_id, Discord snowflake). */
-	ts: string;
+	ts: str({ minLength: 1 }),
 	/** Platform user id, or `"bot"` for the bot's own replies. */
-	user: string;
-	userName?: string;
-	displayName?: string;
-	text: string;
-	attachments: Attachment[];
-	isBot: boolean;
+	user: str(),
+	userName: opt(str()),
+	displayName: opt(str()),
+	text: str(),
+	attachments: arr(attachmentSchema),
+	isBot: bool(),
 	/**
 	 * ISO 8601 of the platform-side edit. Present on rows that record an edit
 	 * (a second/later occurrence of the same `ts`). Absent on the original.
 	 */
-	editedAt?: string;
+	editedAt: opt(str()),
 	/**
 	 * Marks the row as a deletion tombstone for an earlier `ts`. Per the
 	 * multi-row contract, when the *last* row for a given `ts` has
@@ -62,7 +63,22 @@ export interface LoggedMessage {
 	 * tooling, etc. The earlier rows for that `ts` stay on disk so deletion
 	 * remains an additive log event, not a destructive rewrite.
 	 */
-	isDeleted?: boolean;
+	isDeleted: opt(bool()),
+}, { open: true });
+
+export type Attachment = Static<typeof attachmentSchema>;
+export type LoggedMessage = Static<typeof loggedMessageSchema>;
+
+const loggedMessage = compile(loggedMessageSchema);
+
+/** Ignore malformed JSONL rows without giving them authority over valid rows. */
+export function parseLoggedMessage(line: string): LoggedMessage | undefined {
+	try {
+		const row: unknown = JSON.parse(line);
+		return loggedMessage.check(row) ? row : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 export interface MessageLogConfig {
@@ -147,8 +163,7 @@ export class MessageLog {
 			const lines = content.split("\n");
 			const lastLine = lines[lines.length - 1];
 			if (!lastLine) return null;
-			const last = JSON.parse(lastLine) as LoggedMessage;
-			return last.ts;
+			return parseLoggedMessage(lastLine)?.ts ?? null;
 		} catch {
 			return null;
 		}

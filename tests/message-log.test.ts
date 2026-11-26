@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { MessageLog } from "../src/message-log.js";
@@ -189,6 +189,16 @@ describe("getLastTimestamp", () => {
 		await ml.logMessage("123", { date: "", ts: "1", user: "u", text: "a", attachments: [], isBot: false });
 		await ml.logMessage("123", { date: "", ts: "2", user: "u", text: "b", attachments: [], isBot: false });
 		expect(ml.getLastTimestamp("123")).toBe("2");
+	});
+
+	test.each([undefined, 42, ""])("returns null for an invalid message id (%p)", (ts) => {
+		const ml = new MessageLog({ workingDir: ws });
+		const dir = join(ws, "123");
+		mkdirSync(dir);
+		writeFileSync(join(dir, "log.jsonl"), JSON.stringify({
+			date: "2026-04-30T10:00:00.000Z", ts, user: "u", text: "hi", attachments: [], isBot: false,
+		}) + "\n");
+		expect(ml.getLastTimestamp("123")).toBeNull();
 	});
 
 	test("returns null on a malformed last line rather than throwing", async () => {
