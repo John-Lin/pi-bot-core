@@ -5,14 +5,15 @@ describe("createAttachTool", () => {
 	test("exposes tool with correct identifier and schema keys", () => {
 		const { tool } = createAttachTool();
 		expect(tool.name).toBe("attach");
-		const props = (tool.parameters as any).properties;
-		expect(Object.keys(props).sort()).toEqual(["label", "path", "title"].sort());
+		const properties = tool.parameters.properties;
+		if (typeof properties !== "object" || properties === null) throw new Error("Expected attach schema properties");
+		expect(Object.keys(properties).sort()).toEqual(["label", "path", "title"].sort());
 	});
 
 	test("throws when no uploader is configured", async () => {
 		const { tool } = createAttachTool();
 		await expect(
-			tool.execute!("c", { label: "x", path: "/workspace/42/foo.png" } as any, undefined),
+			tool.execute("c", { label: "x", path: "/workspace/42/foo.png" }, undefined),
 		).rejects.toThrow(/not configured|no active/i);
 	});
 
@@ -23,16 +24,13 @@ describe("createAttachTool", () => {
 			calls.push({ path: filePath, label: opts.label, fileName: opts.fileName });
 		});
 
-		const out = await tool.execute!(
+		const out = await tool.execute(
 			"c",
-			{ label: "latest chart", path: "/workspace/42/scratch/chart.png", title: "Chart.png" } as any,
+			{ label: "latest chart", path: "/workspace/42/scratch/chart.png", title: "Chart.png" },
 			undefined,
 		);
 
-		expect(calls).toHaveLength(1);
-		expect(calls[0]!.path).toBe("/workspace/42/scratch/chart.png");
-		expect(calls[0]!.label).toBe("latest chart");
-		expect(calls[0]!.fileName).toBe("Chart.png");
+		expect(calls).toEqual([{ path: "/workspace/42/scratch/chart.png", label: "latest chart", fileName: "Chart.png" }]);
 		expect(out.content[0]).toEqual({ type: "text", text: "Attached Chart.png" });
 	});
 
@@ -43,9 +41,9 @@ describe("createAttachTool", () => {
 			receivedFileName = opts.fileName;
 		});
 
-		await tool.execute!(
+		await tool.execute(
 			"c",
-			{ label: "pdf", path: "/workspace/42/scratch/report.pdf" } as any,
+			{ label: "pdf", path: "/workspace/42/scratch/report.pdf" },
 			undefined,
 		);
 
@@ -62,7 +60,7 @@ describe("createAttachTool", () => {
 		ac.abort();
 
 		await expect(
-			tool.execute!("c", { label: "x", path: "/workspace/42/chart.png" } as any, ac.signal),
+			tool.execute("c", { label: "x", path: "/workspace/42/chart.png" }, ac.signal),
 		).rejects.toThrow();
 		expect(called).toBe(false);
 	});
@@ -75,7 +73,7 @@ describe("createAttachTool", () => {
 		});
 
 		await expect(
-			tool.execute!("c", { label: "x", path: "scratch/chart.png" } as any, undefined),
+			tool.execute("c", { label: "x", path: "scratch/chart.png" }, undefined),
 		).rejects.toThrow(/absolute/i);
 		expect(called).toBe(false);
 	});
@@ -87,9 +85,9 @@ describe("createAttachTool", () => {
 			calls.push(filePath);
 		});
 
-		await tool.execute!(
+		await tool.execute(
 			"c",
-			{ label: "x", path: "/Users/me/data/42/chart.png" } as any,
+			{ label: "x", path: "/Users/me/data/42/chart.png" },
 			undefined,
 		);
 		expect(calls).toEqual(["/Users/me/data/42/chart.png"]);
@@ -103,9 +101,9 @@ describe("createAttachTool", () => {
 		});
 
 		// LLM commonly interprets "title" as a human-readable name and drops the extension.
-		await tool.execute!(
+		await tool.execute(
 			"c",
-			{ label: "memory", path: "/workspace/42/MEMORY.md", title: "memory" } as any,
+			{ label: "memory", path: "/workspace/42/MEMORY.md", title: "memory" },
 			undefined,
 		);
 
@@ -118,7 +116,7 @@ describe("createAttachTool", () => {
 		setUploader(null);
 
 		await expect(
-			tool.execute!("c", { label: "x", path: "/workspace/42/chart.png" } as any, undefined),
+			tool.execute("c", { label: "x", path: "/workspace/42/chart.png" }, undefined),
 		).rejects.toThrow(/not configured|no active/i);
 	});
 });

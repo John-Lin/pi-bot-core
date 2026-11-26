@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTelegraphGetTool } from "../src/tools/telegraph.js";
+import { firstToolText } from "./helpers/tool-result.js";
 
 let originalFetch: typeof fetch;
 let lastBody: Record<string, unknown> | undefined;
@@ -55,7 +56,7 @@ describe("createTelegraphGetTool", () => {
 		);
 
 		expect(lastBody).toEqual({ path: "Hello-12-31", return_content: true });
-		const text = (result.content as { type: string; text: string }[])[0].text;
+		const text = firstToolText(result);
 		expect(text).toContain("Hello");
 		expect(text).toContain("body **bold**");
 		expect(result.details).toMatchObject({

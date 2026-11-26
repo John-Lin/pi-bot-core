@@ -170,7 +170,7 @@ describe("getPages", () => {
 		expect(captured?.body).toEqual({ access_token: "tok", offset: 0, limit: 50 });
 		expect(result.total_count).toBe(2);
 		expect(result.pages).toHaveLength(2);
-		expect(result.pages[0].title).toBe("A");
+		expect(result.pages[0]?.title).toBe("A");
 	});
 
 	test("offset/limit are optional", async () => {
