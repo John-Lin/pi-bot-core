@@ -1,4 +1,4 @@
-import { arr, bool, compile, int, obj, oneOf, opt, str, unknown as unknownValue, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, compile, int, obj, opt, str, unknown as unknownValue, type Static } from "@earendil-works/pi-schema";
 
 /**
  * Telegraph (telegra.ph) tag whitelist. Anything outside this set is dropped
@@ -39,7 +39,6 @@ const elementFields = {
 };
 const renderableElementSchema = obj({ tag: str(), ...elementFields }, { open: true });
 const renderableElement = compile(renderableElementSchema);
-const nodeElement = compile(obj({ tag: oneOf(SUPPORTED_TAGS), ...elementFields }, { open: true }));
 
 export interface RenderableElement extends Omit<Static<typeof renderableElementSchema>, "children"> {
 	children?: RenderableNode[];
@@ -56,27 +55,30 @@ function isRenderableNode(value: unknown): value is RenderableNode {
 	return typeof value === "string" || (renderableElement.check(value) && (value.children?.every(isRenderableNode) ?? true));
 }
 
-function isNode(value: unknown): value is Node {
-	return typeof value === "string" || (nodeElement.check(value) && (value.children?.every(isNode) ?? true));
-}
-
 const accessToken = { access_token: str({ minLength: 1 }) };
 export const accessTokenSchema = obj(accessToken, { open: true });
-const accountIdentity = { short_name: str(), author_name: str(), ...accessToken };
-export const storedAccountSchema = obj(accountIdentity, { open: true });
+const accountNames = { short_name: str(), author_name: str() };
+export const storedAccountSchema = obj({
+	...accessToken,
+	short_name: opt(accountNames.short_name),
+	author_name: opt(accountNames.author_name),
+}, { open: true });
 export const createdAccountSchema = obj({
-	...accountIdentity,
+	...accountNames,
+	...accessToken,
 	author_url: opt(str()),
 	auth_url: opt(str()),
 }, { open: true });
 
 export type CreatedAccount = Static<typeof createdAccountSchema>;
-export type Account = Omit<CreatedAccount, "access_token" | "auth_url">;
-export type AccessToken = Pick<CreatedAccount, "access_token">;
-export type AuthUrl = Required<Pick<CreatedAccount, "auth_url">>;
+export interface Account extends Omit<CreatedAccount, "access_token" | "auth_url"> {}
+export interface AccessToken extends Pick<CreatedAccount, "access_token"> {}
+export interface AuthUrl extends Required<Pick<CreatedAccount, "auth_url">> {}
 
 const pageCount = int({ minimum: 0 });
-export type PageCount = { page_count: Static<typeof pageCount> };
+export interface PageCount {
+	page_count: Static<typeof pageCount>;
+}
 
 export const pageSchema = obj({
 	path: str(),
@@ -94,14 +96,9 @@ export type Page<T extends boolean = false> = Static<typeof pageSchema> &
 	(T extends true ? { content: string | Node[] } : unknown);
 
 export const pageListSchema = obj({ total_count: pageCount, pages: arr(pageSchema) }, { open: true });
-export type PageList = Static<typeof pageListSchema>;
+export interface PageList extends Static<typeof pageListSchema> {}
 
 const page = compile(pageSchema);
-
-export function isPageWithContent(value: unknown): value is Page<true> {
-	if (!page.check(value) || !("content" in value)) return false;
-	return typeof value.content === "string" || (Array.isArray(value.content) && value.content.every(isNode));
-}
 
 export type RenderablePage = Page & { content?: string | RenderableNode[] | null };
 

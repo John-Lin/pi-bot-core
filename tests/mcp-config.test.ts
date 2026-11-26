@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, expectTypeOf, test } from "bun:test";
+import type { McpServerConfig } from "@earendil-works/pi-coding-agent";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -48,8 +49,10 @@ describe("loadBotMcpConfig", () => {
 				},
 			});
 
+			const loaded = loadBotMcpConfig(path);
+			expectTypeOf<(typeof loaded.servers)[number]["config"]>().toEqualTypeOf<McpServerConfig>();
 			// Loaded configs keep the alias spellings the SDK accepts but does not type.
-			expect(loadBotMcpConfig(path) as unknown).toEqual({
+			expect<unknown>(loaded).toEqual({
 				servers: [
 					{
 						name: "local",

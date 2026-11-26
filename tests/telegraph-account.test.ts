@@ -69,6 +69,18 @@ describe("ensureTelegraphAccount", () => {
 		expect(account.short_name).toBe("x");
 	});
 
+	test("reuses a token-only account file unchanged through the SDK", async () => {
+		const path = join(ws, ".telegraph.json");
+		const saved = JSON.stringify({ access_token: "existing" });
+		writeFileSync(path, saved);
+
+		const account = await ensureTelegraphAccount(ws, { short_name: "unused", author_name: "unused" });
+		expect(account.access_token).toBe("existing");
+		expect(Object.keys(account)).toEqual(["access_token"]);
+		expect(readFileSync(path, "utf8")).toBe(saved);
+		expect(fetchCalls).toBe(0);
+	});
+
 	test("rejects malformed stored accounts without disclosing or replacing them", async () => {
 		const path = join(ws, ".telegraph.json");
 		const invalid = JSON.stringify({ access_token: "invalid-token-value", short_name: "account", author_name: 42 });

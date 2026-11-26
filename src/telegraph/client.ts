@@ -1,5 +1,5 @@
 import { compile, lit, obj, opt, str, unknown as unknownValue } from "@earendil-works/pi-schema";
-import { createdAccountSchema, isPageWithContent, isRenderablePage, pageListSchema, pageSchema, type CreatedAccount, type Node, type Page, type PageList, type RenderablePage } from "./types.js";
+import { createdAccountSchema, isRenderablePage, pageListSchema, pageSchema, type AccessToken, type Account, type AuthUrl, type Node, type Page, type PageList, type RenderablePage } from "./types.js";
 
 const API_ROOT = "https://api.telegra.ph";
 const success = compile(obj({ ok: lit(true), result: opt(unknownValue()) }, { open: true }));
@@ -38,8 +38,10 @@ export function createAccount(details: {
 	short_name: string;
 	author_name?: string;
 	author_url?: string;
-}): Promise<CreatedAccount> {
-	return call({ method: "createAccount", body: details, isResult: isCreatedAccount });
+}): Promise<Account & AccessToken & AuthUrl> {
+	const result = call({ method: "createAccount", body: { ...details }, isResult: isCreatedAccount });
+	// oxlint-disable-next-line typescript/consistent-type-assertions -- Preserve the published type without inventing an omitted auth_url.
+	return result as Promise<Account & AccessToken & AuthUrl>;
 }
 
 export function createPage(args: {
@@ -49,7 +51,7 @@ export function createPage(args: {
 	author_name?: string;
 	author_url?: string;
 }): Promise<Page<false>> {
-	return call({ method: "createPage", body: args, isResult: isPage });
+	return call({ method: "createPage", body: { ...args }, isResult: isPage });
 }
 
 export function editPage(args: {
@@ -60,16 +62,15 @@ export function editPage(args: {
 	author_name?: string;
 	author_url?: string;
 }): Promise<Page<false>> {
-	return call({ method: "editPage", body: args, isResult: isPage });
+	return call({ method: "editPage", body: { ...args }, isResult: isPage });
 }
 
-export function getPage(path: string, return_content?: true): Promise<Page<true>>;
-export function getPage(path: string, return_content?: boolean): Promise<Page>;
-export function getPage(path: string, return_content = true): Promise<Page> {
-	const body = { path, return_content };
-	return return_content
-		? call({ method: "getPage", body, isResult: isPageWithContent })
-		: call({ method: "getPage", body, isResult: isPage });
+export function getPage(path: string, return_content = true): Promise<Page<true>> {
+	const result = return_content
+		? getRenderablePage(path)
+		: call({ method: "getPage", body: { path, return_content }, isResult: isPage });
+	// oxlint-disable-next-line typescript/consistent-type-assertions -- Preserve the published type and leave optional or unknown page content unchanged.
+	return result as Promise<Page<true>>;
 }
 
 export function getRenderablePage(path: string): Promise<RenderablePage> {
@@ -81,5 +82,5 @@ export function getPages(args: {
 	offset?: number;
 	limit?: number;
 }): Promise<PageList> {
-	return call({ method: "getPageList", body: args, isResult: isPageList });
+	return call({ method: "getPageList", body: { ...args }, isResult: isPageList });
 }

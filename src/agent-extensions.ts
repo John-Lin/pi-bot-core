@@ -29,7 +29,7 @@ import { join, resolve } from "path";
 
 export interface BotMcpServer {
 	name: string;
-	config: McpServerConfig | FileServerConfig;
+	config: McpServerConfig;
 }
 
 export interface BotMcpConfig {
@@ -159,7 +159,7 @@ export function createBotAgentExtensions(options: BotAgentExtensionsOptions): Bo
 			name: `${options.name}-mcp-servers`,
 			factory: (pi) => {
 				for (const server of servers) {
-					pi.registerMcpServer(server.name, sdkServerConfig(server.config));
+					pi.registerMcpServer(server.name, server.config);
 				}
 			},
 		},
@@ -239,22 +239,6 @@ const rootConfig = compile(obj({ mcpServers: serverRecordSchema }, { open: true 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const SERVER_NAME = /^[A-Za-z0-9_-]+$/;
 
-function sdkServerConfig(config: BotMcpServer["config"]): McpServerConfig {
-	const { exposure, toolExposure, ...transport } = config;
-	const normalize = (value: NonNullable<typeof exposure>) => value === "codemode-deferred" ? "codemode" : value;
-	const exposures = {
-		...(exposure !== undefined && { exposure: normalize(exposure) }),
-		...(toolExposure !== undefined && {
-			toolExposure: Object.fromEntries(Object.entries(toolExposure).map(([tool, value]) => [tool, normalize(value)])),
-		}),
-	};
-	if ("url" in transport) {
-		const { type, ...http } = transport;
-		return { ...http, ...exposures, ...(type !== undefined && { type: type === "streamable-http" ? "http" : type }) };
-	}
-	return { ...transport, ...exposures };
-}
-
 function validateOAuth(value: Static<typeof oauthSchema> | undefined, invalid: (message: string) => never): void {
 	if (value === undefined) return;
 	const callback = value.callbackUrl === undefined ? undefined : URL.parse(value.callbackUrl);
@@ -329,9 +313,11 @@ export function loadBotMcpConfig(path: string): BotMcpConfig {
 		}
 	}
 
-	const servers = Object.entries(parsed.mcpServers).map(([name, raw]) => ({
-		name, config: validateServer({ path, name, raw }),
-	}));
+	const servers = Object.entries(parsed.mcpServers).map(([name, raw]) => {
+		const config = validateServer({ path, name, raw });
+		// oxlint-disable-next-line typescript/consistent-type-assertions -- The SDK accepts validated aliases its declaration omits.
+		return { name, config: config as McpServerConfig };
+	});
 	const namespaces = new Set<string>();
 	for (const server of servers) {
 		const namespace = server.name.replace(/-/g, "_");
