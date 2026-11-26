@@ -21,6 +21,7 @@ import {
 	StdioTransport,
 	StreamableHttpTransport,
 } from "@earendil-works/pi-mcp";
+import { arr, bool, compile, int, lit, map, num, obj, oneOf, opt, str, unknown as unknownValue, type Static } from "@earendil-works/pi-schema";
 import { execSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
@@ -28,7 +29,7 @@ import { join, resolve } from "path";
 
 export interface BotMcpServer {
 	name: string;
-	config: McpServerConfig;
+	config: McpServerConfig | FileServerConfig;
 }
 
 export interface BotMcpConfig {
@@ -158,7 +159,7 @@ export function createBotAgentExtensions(options: BotAgentExtensionsOptions): Bo
 			name: `${options.name}-mcp-servers`,
 			factory: (pi) => {
 				for (const server of servers) {
-					pi.registerMcpServer(server.name, server.config);
+					pi.registerMcpServer(server.name, sdkServerConfig(server.config));
 				}
 			},
 		},
@@ -195,43 +196,69 @@ export function createBotAgentExtensions(options: BotAgentExtensionsOptions): Bo
 	};
 }
 
-const EXPOSURES = new Set(["codemode", "codemode-deferred", "deferred", "direct", "hidden"]);
-const COMMON_SERVER_FIELDS = ["type", "description", "enabled", "timeout", "exposure", "toolExposure"];
-const STDIO_SERVER_FIELDS = new Set([...COMMON_SERVER_FIELDS, "command", "args", "env", "cwd"]);
-const HTTP_SERVER_FIELDS = new Set([...COMMON_SERVER_FIELDS, "url", "headers", "oauth"]);
-const OAUTH_STRING_FIELDS = ["clientId", "clientSecret", "scope", "clientName"];
-const OAUTH_FIELDS = new Set([
-	...OAUTH_STRING_FIELDS, "callbackPort", "callbackUrl", "clientRegistration", "authServerMetadataUrl",
-]);
+const exposureSchema = oneOf(["codemode", "codemode-deferred", "deferred", "direct", "hidden"]);
+const commonServerFields = {
+	description: opt(str()),
+	enabled: opt(bool()),
+	timeout: opt(num({ exclusiveMinimum: 0, maximum: Number.MAX_VALUE })),
+	exposure: opt(exposureSchema),
+	toolExposure: opt(map(exposureSchema)),
+};
+const oauthSchema = obj({
+	clientId: opt(str()),
+	clientSecret: opt(str()),
+	scope: opt(str()),
+	clientName: opt(str({ pattern: "\\S" })),
+	callbackPort: opt(int({ minimum: 1, maximum: 65535 })),
+	callbackUrl: opt(str()),
+	clientRegistration: opt(oneOf(["dcr", "cimd"])),
+	authServerMetadataUrl: opt(str()),
+});
+const stdioServerSchema = obj({
+	...commonServerFields,
+	type: opt(lit("stdio")),
+	command: str(),
+	args: opt(arr(str())),
+	env: opt(map(str())),
+	cwd: opt(str()),
+});
+const httpServerSchema = obj({
+	...commonServerFields,
+	type: opt(oneOf(["http", "streamable-http"])),
+	url: str(),
+	headers: opt(map(str())),
+	oauth: opt(oauthSchema),
+});
+
+type FileServerConfig = Static<typeof stdioServerSchema | typeof httpServerSchema>;
+const stdioServer = compile(stdioServerSchema);
+const httpServer = compile(httpServerSchema);
+const serverRecordSchema = map(unknownValue());
+const serverRecord = compile(serverRecordSchema);
+const rootConfig = compile(obj({ mcpServers: serverRecordSchema }, { open: true }));
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const SERVER_NAME = /^[A-Za-z0-9_-]+$/;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function sdkServerConfig(config: BotMcpServer["config"]): McpServerConfig {
+	const { exposure, toolExposure, ...transport } = config;
+	const normalize = (value: NonNullable<typeof exposure>) => value === "codemode-deferred" ? "codemode" : value;
+	const exposures = {
+		...(exposure !== undefined && { exposure: normalize(exposure) }),
+		...(toolExposure !== undefined && {
+			toolExposure: Object.fromEntries(Object.entries(toolExposure).map(([tool, value]) => [tool, normalize(value)])),
+		}),
+	};
+	if ("url" in transport) {
+		const { type, ...http } = transport;
+		return { ...http, ...exposures, ...(type !== undefined && { type: "http" }) };
+	}
+	return { ...transport, ...exposures };
 }
 
-function isStringRecord(value: unknown): value is Record<string, string> {
-	return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
-}
-
-function validateOAuth(value: unknown, invalid: (message: string) => never): void {
+function validateOAuth(value: Static<typeof oauthSchema> | undefined, invalid: (message: string) => never): void {
 	if (value === undefined) return;
-	if (!isRecord(value)) return invalid("oauth must be an object");
-	for (const field of Object.keys(value)) {
-		if (!OAUTH_FIELDS.has(field)) invalid(`unknown oauth field "${field}"`);
-	}
-	for (const field of OAUTH_STRING_FIELDS) {
-		if (value[field] !== undefined && typeof value[field] !== "string") invalid(`oauth.${field} must be a string`);
-	}
-	if (typeof value.clientName === "string" && value.clientName.trim() === "") {
-		invalid("oauth.clientName must be non-empty");
-	}
+	const callback = value.callbackUrl === undefined ? undefined : URL.parse(value.callbackUrl);
 	const port = value.callbackPort;
-	if (port !== undefined && (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535)) {
-		invalid("oauth.callbackPort must be a port number");
-	}
-	const callback = typeof value.callbackUrl === "string" && URL.canParse(value.callbackUrl)
-		? new URL(value.callbackUrl) : undefined;
 	if (value.callbackUrl !== undefined) {
 		if (!callback || callback.protocol !== "http:" || !LOOPBACK_HOSTS.has(callback.hostname)
 			|| callback.search !== "" || callback.hash !== "") {
@@ -240,9 +267,6 @@ function validateOAuth(value: unknown, invalid: (message: string) => never): voi
 		if (callback?.port && port !== undefined && Number(callback.port) !== port) {
 			invalid("oauth.callbackUrl and oauth.callbackPort name different ports");
 		}
-	}
-	if (value.clientRegistration !== undefined && value.clientRegistration !== "dcr" && value.clientRegistration !== "cimd") {
-		invalid('oauth.clientRegistration must be "dcr" or "cimd"');
 	}
 	if (value.clientRegistration === "cimd") {
 		if (value.clientId !== undefined || value.clientName !== undefined) {
@@ -253,62 +277,32 @@ function validateOAuth(value: unknown, invalid: (message: string) => never): voi
 		}
 	}
 	if (value.authServerMetadataUrl !== undefined) {
-		const url = typeof value.authServerMetadataUrl === "string" && URL.canParse(value.authServerMetadataUrl)
-			? new URL(value.authServerMetadataUrl) : undefined;
+		const url = URL.parse(value.authServerMetadataUrl);
 		if (!url || !(url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname)))) {
 			invalid("oauth.authServerMetadataUrl must use https, or http on a loopback host");
 		}
 	}
 }
 
-function validateServer(path: string, name: string, raw: Record<string, unknown>): McpServerConfig {
+function validateServer({ path, name, raw }: { path: string; name: string; raw: unknown }): FileServerConfig {
 	const invalid = (message: string): never => {
 		throw new Error(`Invalid MCP config ${path}: server "${name}": ${message}`);
 	};
-	if (!SERVER_NAME.test(name)) invalid("name may contain only letters, digits, _ and -");
-	if (raw.auth !== undefined) invalid("provider auth is not supported");
-	if (raw.exposure !== undefined && (typeof raw.exposure !== "string" || !EXPOSURES.has(raw.exposure))) {
-		invalid("invalid exposure");
-	}
-	if (raw.toolExposure !== undefined) {
-		if (!isRecord(raw.toolExposure)) invalid("toolExposure must be an object");
-		for (const exposure of Object.values(raw.toolExposure as Record<string, unknown>)) {
-			if (typeof exposure !== "string" || !EXPOSURES.has(exposure)) invalid("invalid tool exposure");
-		}
-	}
-	if (raw.description !== undefined && typeof raw.description !== "string") invalid("description must be a string");
-	if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") invalid("enabled must be a boolean");
-	if (raw.timeout !== undefined && (typeof raw.timeout !== "number" || raw.timeout <= 0)) {
-		invalid("timeout must be a positive number");
-	}
-
+	if (!SERVER_NAME.test(name)) return invalid("name may contain only letters, digits, _ and -");
+	if (!serverRecord.check(raw)) return invalid("must be an object");
+	if (Object.hasOwn(raw, "auth")) return invalid("provider auth is not supported");
 	const hasCommand = Object.hasOwn(raw, "command");
 	const hasUrl = Object.hasOwn(raw, "url");
-	if (hasCommand === hasUrl) invalid("must define exactly one of command or url");
-	const allowedFields = hasCommand ? STDIO_SERVER_FIELDS : HTTP_SERVER_FIELDS;
-	for (const field of Object.keys(raw)) {
-		if (!allowedFields.has(field)) invalid(`unknown field "${field}"`);
-	}
-	if (hasCommand) {
-		if (typeof raw.command !== "string") invalid("command must be a string");
-		if (raw.type !== undefined && raw.type !== "stdio") invalid("stdio server type must be stdio");
-		if (raw.args !== undefined && !(Array.isArray(raw.args) && raw.args.every((arg) => typeof arg === "string"))) {
-			invalid("args must be an array of strings");
-		}
-		if (raw.env !== undefined && !isStringRecord(raw.env)) invalid("env must map names to strings");
-		if (raw.cwd !== undefined && typeof raw.cwd !== "string") invalid("cwd must be a string");
-	} else {
-		if (typeof raw.url !== "string") invalid("url must be a string");
-		if (raw.type !== undefined && raw.type !== "http" && raw.type !== "streamable-http") {
-			invalid("HTTP server type must be http or streamable-http");
-		}
-		if (!URL.canParse(raw.url as string) || !/^https?:$/.test(new URL(raw.url as string).protocol)) {
-			invalid("url must use http or https");
-		}
-		if (raw.headers !== undefined && !isStringRecord(raw.headers)) invalid("headers must map names to strings");
+	if (hasCommand === hasUrl) return invalid("must define exactly one of command or url");
+	if (hasCommand && stdioServer.check(raw)) return raw;
+	if (hasUrl && httpServer.check(raw)) {
+		const url = URL.parse(raw.url);
+		if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) return invalid("url must use http or https");
 		validateOAuth(raw.oauth, invalid);
+		return raw;
 	}
-	return raw as unknown as McpServerConfig;
+	const validator = hasCommand ? stdioServer : httpServer;
+	return invalid(validator.errors(raw).map(({ path, message }) => `${path || "/"}: ${message}`).join("; "));
 }
 
 /**
@@ -319,8 +313,14 @@ function validateServer(path: string, name: string, raw: Record<string, unknown>
 export function loadBotMcpConfig(path: string): BotMcpConfig {
 	if (!existsSync(path)) return { servers: [] };
 
-	const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-	if (!isRecord(parsed) || !isRecord(parsed.mcpServers)) {
+	const source = readFileSync(path, "utf8");
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(source);
+	} catch {
+		throw new Error(`Invalid MCP config ${path}: invalid JSON`);
+	}
+	if (!rootConfig.check(parsed)) {
 		throw new Error(`Invalid MCP config ${path}: mcpServers must be an object`);
 	}
 	for (const field of Object.keys(parsed)) {
@@ -329,12 +329,9 @@ export function loadBotMcpConfig(path: string): BotMcpConfig {
 		}
 	}
 
-	const servers = Object.entries(parsed.mcpServers).map(([name, raw]) => {
-		if (!isRecord(raw)) {
-			throw new Error(`Invalid MCP config ${path}: server "${name}" must be an object`);
-		}
-		return { name, config: validateServer(path, name, raw) };
-	});
+	const servers = Object.entries(parsed.mcpServers).map(([name, raw]) => ({
+		name, config: validateServer({ path, name, raw }),
+	}));
 	const namespaces = new Set<string>();
 	for (const server of servers) {
 		const namespace = server.name.replace(/-/g, "_");

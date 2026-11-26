@@ -89,6 +89,22 @@ describe("loadBotMcpConfig", () => {
 		});
 	});
 
+	test("rejects non-finite timeouts in JSON", () => {
+		withTempDir((dir) => {
+			const path = join(dir, "mcp.json");
+			writeFileSync(path, '{"mcpServers":{"local":{"command":"server","timeout":1e400}}}');
+			expect(() => loadBotMcpConfig(path)).toThrow(/server "local".*timeout/);
+		});
+	});
+
+	test("malformed JSON errors do not quote credentials", () => {
+		withTempDir((dir) => {
+			const path = join(dir, "mcp.json");
+			writeFileSync(path, '{"headers":{"Authorization":secret-test-value}}');
+			expect(() => loadBotMcpConfig(path)).toThrow(new Error(`Invalid MCP config ${path}: invalid JSON`));
+		});
+	});
+
 	test("rejects unknown top-level fields", () => {
 		withTempDir((dir) => {
 			const path = writeConfig(dir, {
