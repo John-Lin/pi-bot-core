@@ -68,6 +68,19 @@ describe("createTelegraphGetTool", () => {
 		expect((result.details as { content: string }).content).toContain("body **bold**");
 	});
 
+	test("renders a title when the response omits content", async () => {
+		nextContent = undefined;
+		const result = await createTelegraphGetTool().execute("read", { label: "read", url_or_path: "Hello-12-31" });
+		expect(firstToolText(result)).toContain("# Hello");
+		expect(result.details).toMatchObject({ content: "" });
+	});
+
+	test("renders the children of unknown element tags", async () => {
+		nextContent = [{ tag: "future-tag", children: ["body ", { tag: "strong", children: ["bold"] }] }];
+		const result = await createTelegraphGetTool().execute("read", { label: "read", url_or_path: "Hello-12-31" });
+		expect(result.details).toMatchObject({ content: "body **bold**" });
+	});
+
 	test("extracts path from a full telegra.ph URL", async () => {
 		const tool = createTelegraphGetTool();
 		await tool.execute(

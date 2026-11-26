@@ -33,22 +33,36 @@ export const SUPPORTED_TAGS = [
 
 export type SupportedTag = (typeof SUPPORTED_TAGS)[number];
 
-const nodeElementSchema = obj({
-	tag: oneOf(SUPPORTED_TAGS),
+const elementFields = {
 	attrs: opt(obj({ href: opt(str()), src: opt(str()) }, { open: true })),
 	children: opt(arr(unknownValue())),
-}, { open: true });
+};
+const renderableElementSchema = obj({ tag: str(), ...elementFields }, { open: true });
+const renderableElement = compile(renderableElementSchema);
+const nodeElement = compile(obj({ tag: oneOf(SUPPORTED_TAGS), ...elementFields }, { open: true }));
 
-export type NodeElement = Omit<Static<typeof nodeElementSchema>, "children"> & { children?: Node[] };
+export interface RenderableElement extends Omit<Static<typeof renderableElementSchema>, "children"> {
+	children?: RenderableNode[];
+}
+export type RenderableNode = string | RenderableElement;
+
+export interface NodeElement extends RenderableElement {
+	tag: SupportedTag;
+	children?: Node[];
+}
 export type Node = string | NodeElement;
 
-const nodeElement = compile(nodeElementSchema);
+function isRenderableNode(value: unknown): value is RenderableNode {
+	return typeof value === "string" || (renderableElement.check(value) && (value.children?.every(isRenderableNode) ?? true));
+}
 
 function isNode(value: unknown): value is Node {
 	return typeof value === "string" || (nodeElement.check(value) && (value.children?.every(isNode) ?? true));
 }
 
-const accountIdentity = { short_name: str(), author_name: str(), access_token: str({ minLength: 1 }) };
+const accessToken = { access_token: str({ minLength: 1 }) };
+export const accessTokenSchema = obj(accessToken, { open: true });
+const accountIdentity = { short_name: str(), author_name: str(), ...accessToken };
 export const storedAccountSchema = obj(accountIdentity, { open: true });
 export const createdAccountSchema = obj({
 	...accountIdentity,
@@ -87,4 +101,14 @@ const page = compile(pageSchema);
 export function isPageWithContent(value: unknown): value is Page<true> {
 	if (!page.check(value) || !("content" in value)) return false;
 	return typeof value.content === "string" || (Array.isArray(value.content) && value.content.every(isNode));
+}
+
+export type RenderablePage = Page & { content?: string | RenderableNode[] | null };
+
+/** A displayable page need not have a body or use only the tags we publish. */
+export function isRenderablePage(value: unknown): value is RenderablePage {
+	if (!page.check(value)) return false;
+	if (!("content" in value)) return true;
+	const { content } = value;
+	return content == null || typeof content === "string" || (Array.isArray(content) && content.every(isRenderableNode));
 }

@@ -1,5 +1,5 @@
 import { compile, lit, obj, opt, str, unknown as unknownValue } from "@earendil-works/pi-schema";
-import { createdAccountSchema, isPageWithContent, pageListSchema, pageSchema, type CreatedAccount, type Node, type Page, type PageList } from "./types.js";
+import { createdAccountSchema, isPageWithContent, isRenderablePage, pageListSchema, pageSchema, type CreatedAccount, type Node, type Page, type PageList, type RenderablePage } from "./types.js";
 
 const API_ROOT = "https://api.telegra.ph";
 const success = compile(obj({ ok: lit(true), result: opt(unknownValue()) }, { open: true }));
@@ -70,6 +70,10 @@ export function getPage(path: string, return_content = true): Promise<Page> {
 	return return_content
 		? call({ method: "getPage", body, isResult: isPageWithContent })
 		: call({ method: "getPage", body, isResult: isPage });
+}
+
+export function getRenderablePage(path: string): Promise<RenderablePage> {
+	return call({ method: "getPage", body: { path, return_content: true }, isResult: isRenderablePage });
 }
 
 export function getPages(args: {
