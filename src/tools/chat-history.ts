@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
-import { parseLoggedMessage, type LoggedMessage } from "../message-log.js";
+import { parseMessageLogEntry, type LoggedMessage, type MessageLogEntry } from "../message-log.js";
 
 const chatHistorySchema = obj({
 	label: str({ description: "Brief description of what you're searching for (shown to user)" }),
@@ -61,7 +61,7 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 
 			const matches: LoggedMessage[] = [];
 			for (const row of lastByTs.values()) {
-				if (row.isDeleted) continue;
+				if (row.kind === "deleted") continue;
 				if (!row.date) continue;
 				const ms = Date.parse(row.date);
 				if (Number.isNaN(ms)) continue;
@@ -97,8 +97,8 @@ function parseBound(name: "after" | "before", raw: string | undefined): number |
 	return ms;
 }
 
-function readLastByTs(logFilePath: string): Map<string, LoggedMessage> {
-	const lastByTs = new Map<string, LoggedMessage>();
+function readLastByTs(logFilePath: string): Map<string, MessageLogEntry> {
+	const lastByTs = new Map<string, MessageLogEntry>();
 	if (!existsSync(logFilePath)) return lastByTs;
 
 	let raw: string;
@@ -110,7 +110,7 @@ function readLastByTs(logFilePath: string): Map<string, LoggedMessage> {
 
 	for (const line of raw.split("\n")) {
 		if (!line) continue;
-		const parsed = parseLoggedMessage(line);
+		const parsed = parseMessageLogEntry(line);
 		if (parsed) lastByTs.set(parsed.ts, parsed);
 	}
 	return lastByTs;

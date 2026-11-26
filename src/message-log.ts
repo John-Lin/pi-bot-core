@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "fs";
 import { appendFile } from "fs/promises";
 import { join } from "path";
-import { arr, bool, compile, obj, opt, str, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, compile, lit, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 
 /**
  * Platform-agnostic message log used by all pi bots (mom/Slack, Telegram,
@@ -38,11 +38,12 @@ const attachmentSchema = obj({
 	local: str(),
 }, { open: true });
 
+const messageId = str({ minLength: 1 });
 const loggedMessageSchema = obj({
 	/** ISO 8601. Auto-filled with current time when caller leaves it empty. */
 	date: str(),
 	/** Platform-native message id (Slack ts, Telegram message_id, Discord snowflake). */
-	ts: str({ minLength: 1 }),
+	ts: messageId,
 	/** Platform user id, or `"bot"` for the bot's own replies. */
 	user: str(),
 	userName: opt(str()),
@@ -70,15 +71,24 @@ export type Attachment = Static<typeof attachmentSchema>;
 export type LoggedMessage = Static<typeof loggedMessageSchema>;
 
 const loggedMessage = compile(loggedMessageSchema);
+const deletion = compile(obj({ ts: messageId, isDeleted: lit(true) }, { open: true }));
 
-/** Ignore malformed JSONL rows without giving them authority over valid rows. */
-export function parseLoggedMessage(line: string): LoggedMessage | undefined {
+export type MessageLogEntry =
+	| { kind: "deleted"; ts: string }
+	| ({ kind: "message" } & Omit<LoggedMessage, "isDeleted">);
+
+/** A deletion depends on the message identity, not on fields that are no longer displayed. */
+export function parseMessageLogEntry(line: string): MessageLogEntry | undefined {
+	let row: unknown;
 	try {
-		const row: unknown = JSON.parse(line);
-		return loggedMessage.check(row) ? row : undefined;
+		row = JSON.parse(line);
 	} catch {
 		return undefined;
 	}
+	if (deletion.check(row)) return { kind: "deleted", ts: row.ts };
+	if (!loggedMessage.check(row)) return undefined;
+	const { isDeleted: _, ...message } = row;
+	return { ...message, kind: "message" };
 }
 
 export interface MessageLogConfig {
@@ -163,7 +173,7 @@ export class MessageLog {
 			const lines = content.split("\n");
 			const lastLine = lines[lines.length - 1];
 			if (!lastLine) return null;
-			return parseLoggedMessage(lastLine)?.ts ?? null;
+			return parseMessageLogEntry(lastLine)?.ts ?? null;
 		} catch {
 			return null;
 		}
