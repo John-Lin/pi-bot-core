@@ -43,11 +43,12 @@ export interface ScheduledEventCommon {
 }
 
 /**
- * What the dispatcher receives. The original parsed event fields are spread
- * verbatim, so `event.channelId` / `event.chatId` / `event.threadId` etc.
- * remain accessible.
+ * What the dispatcher receives. The watcher sets `name` and prefixes `text`;
+ * other parsed fields such as `channelId`, `chatId`, or `threadId` are preserved.
  */
-export type FiredEvent<TEvent extends ScheduledEventCommon> = TEvent & {
+export type FiredEvent<TEvent extends ScheduledEventCommon> = {
+	[Field in keyof TEvent as Exclude<Field, "name" | "text">]: TEvent[Field];
+} & {
 	/** JSON filename, used in the [EVENT:...] prefix. */
 	name: string;
 	/**
@@ -320,6 +321,10 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 			case "periodic":
 				this.handlePeriodic(filename, event, generation);
 				break;
+			default: {
+				const _exhaustive: never = event.type;
+				void _exhaustive;
+			}
 		}
 	}
 
@@ -387,7 +392,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 			const cron = new Cron(event.schedule, { timezone: event.timezone }, () => {
 				if (!this.isActive(generation)) return;
 				this.log.info(`Executing periodic event: ${filename}`);
-				void this.execute(filename, event, generation, false);
+				void this.execute(filename, event, generation);
 			});
 			this.crons.set(filename, cron);
 			const next = cron.nextRun();
@@ -400,8 +405,9 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		}
 	}
 
-	private async execute(filename: EventFilename, event: TEvent, generation: number, deleteAfter: boolean = true): Promise<void> {
+	private async execute(filename: EventFilename, event: TEvent, generation: number): Promise<void> {
 		if (!this.isActive(generation)) return;
+		const deleteAfter = event.type !== "periodic";
 		const scheduleInfo =
 			event.type === "immediate"
 				? "immediate"
