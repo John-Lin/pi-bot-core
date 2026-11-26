@@ -1,7 +1,7 @@
 {
   "name": "pi-bot-core",
   "version": "0.14.1",
-  "description": "Shared runtime and building blocks for pi-mono based bots (executor + tools, workspace, events scheduler)",
+  "description": "Shared runtime and building blocks for Pi SDK bots (VM sandbox, tools, workspace, and event scheduler)",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
