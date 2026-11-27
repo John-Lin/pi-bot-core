@@ -15,11 +15,7 @@ export function createWriteTool(executor: Executor): AgentTool<typeof writeSchem
 		description:
 			"Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
 		parameters: writeSchema,
-		execute: async (
-			_toolCallId: string,
-			{ path, content }: { label: string; path: string; content: string },
-			signal?: AbortSignal,
-		) => {
+		execute: async (_toolCallId, { path, content }, signal) => {
 			const dir = path.includes("/") ? path.substring(0, path.lastIndexOf("/")) : ".";
 
 			// Use printf to handle content with special characters; shell-escape everything.

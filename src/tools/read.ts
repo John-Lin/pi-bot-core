@@ -36,9 +36,9 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files.`,
 		parameters: readSchema,
 		execute: async (
-			_toolCallId: string,
-			{ path, offset, limit }: { label: string; path: string; offset?: number; limit?: number },
-			signal?: AbortSignal,
+			_toolCallId,
+			{ path, offset, limit },
+			signal,
 		): Promise<{ content: (TextContent | ImageContent)[]; details: ReadToolDetails | undefined }> => {
 			const mimeType = isImageFile(path);
 

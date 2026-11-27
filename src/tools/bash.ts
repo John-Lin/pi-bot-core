@@ -20,11 +20,7 @@ export function createBashTool(executor: Executor): AgentTool<typeof bashSchema>
 		label: "bash",
 		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, the tool tries to save full output to a temp file. Optionally provide a timeout in seconds.`,
 		parameters: bashSchema,
-		execute: async (
-			_toolCallId: string,
-			{ command, timeout }: { label: string; command: string; timeout?: number },
-			signal?: AbortSignal,
-		) => {
+		execute: async (_toolCallId, { command, timeout }, signal) => {
 			let tempFilePath: string | undefined;
 
 			const result = await executor.exec(command, { timeout, signal });
