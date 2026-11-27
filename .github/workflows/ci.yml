@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+  # Check every pull request, including ones stacked on other pull request branches.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
