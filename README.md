@@ -100,3 +100,5 @@ Run the opt-in VM test suites with these commands.
 | QEMU VM suite (also run in CI) | `PI_BOT_TEST_VM_SANDBOX=1 bun test --no-env-file tests/vm-*.test.ts` |
 | Public HTTPS test against `example.com` | `PI_BOT_TEST_VM_SANDBOX_WEB=1 bun test --no-env-file tests/vm-backend.test.ts` |
 | krun VM suite on a supported host | `PI_BOT_TEST_VM_SANDBOX_KRUN=1 bun test --no-env-file tests/vm-*.test.ts -t krun` |
+
+CI runs the QEMU suite in four parallel jobs with `bun test --shard`, separately from the other tests. Name real-VM test files `tests/vm-*.test.ts`; CI runs only those files with `PI_BOT_TEST_VM_SANDBOX=1`, so a VM test in any other file is skipped.
