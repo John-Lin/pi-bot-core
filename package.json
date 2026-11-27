@@ -1,6 +1,6 @@
 {
   "name": "pi-bot-core",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Shared runtime and building blocks for Pi SDK bots (VM sandbox, tools, workspace, and event scheduler)",
   "license": "MIT",
   "type": "module",
