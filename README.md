@@ -65,7 +65,7 @@ bun --no-env-file run typecheck
 bun test --no-env-file
 ```
 
-The `typecheck` script checks all TypeScript files under `src/` and `tests/`. The `lint` script runs `oxlint` on `src/`.
+The `typecheck` script checks all TypeScript files under `src/` and `tests/`. The `lint` script runs `oxlint` on `src/` and fails on unused `oxlint-disable` directives.
 
 ### Pre-commit hooks
 

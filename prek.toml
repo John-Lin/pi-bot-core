@@ -13,7 +13,7 @@ pass_filenames = false
 [[repos.hooks]]
 id = "lint"
 name = "Oxlint (source files)"
-entry = "bunx --no-install oxlint"
+entry = "bunx --no-install oxlint --report-unused-disable-directives-severity=error"
 language = "system"
 stages = ["pre-commit"]
 files = '^src/.*\.ts$'
