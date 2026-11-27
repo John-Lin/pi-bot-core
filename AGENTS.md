@@ -4,7 +4,7 @@ Shared runtime for Pi SDK bots. There is no build step: consumers import `src/*.
 
 ## Public API contract
 
-- Every module behind `exports` is a contract with the consumer bots: keep exported names, types, and runtime shapes compatible, and raise any breaking change with John before making it.
+- Every module behind `exports` is a contract with the consumer bots: keep exported names, types, and runtime shapes compatible.
 - Adding, removing, or renaming an entrypoint means updating both `exports` and the README "Package exports" table.
 - Public behavior changes go into the matching reference doc in the same change:
   - `docs/vm-sandbox.md`: `Executor`, `VMSandbox`, host requirements, mounts, network policy, web secrets.
@@ -20,7 +20,8 @@ Shared runtime for Pi SDK bots. There is no build step: consumers import `src/*.
 
 ## Dependencies
 
-- The `@earendil-works/pi-*` SDK packages appear in both `peerDependencies` and `devDependencies` because bun keeps peer-only packages stuck at the installed version. Bump by editing both ranges, then `bun --no-env-file install`.
+- The `@earendil-works/pi-*` SDK packages appear in both `peerDependencies` and `devDependencies` because bun keeps peer-only packages stuck at the installed version. Edit the ranges, then `bun --no-env-file install`.
+- The two ranges mean different things: `devDependencies` is the SDK version core is verified against; `peerDependencies` is the minimum SDK core requires from consumers. To verify against a newer SDK, bump only the dev range. Raise the peer range only when core starts using an API the old minimum lacks, and update the README consumer requirement with it.
 - After changing any workflow `uses:`, run `gh actions-lock` and commit `.github/workflows/actions.lock` with it; CI fails when the lockfile is out of sync.
 
 ## Tests
