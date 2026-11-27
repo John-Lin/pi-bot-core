@@ -5,7 +5,7 @@ import { basename, join, posix, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM, type ResolvedImage, type VMOptions } from "@earendil-works/gondolin";
+import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM, type ResolvedImage, type VirtualProvider, type VMOptions } from "@earendil-works/gondolin";
 import { createSandboxWebSecretHooks, normalizeSandboxWebSecrets, type ActiveSandboxWebSecret, type SandboxWebSecret } from "./sandbox-web-secrets.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
@@ -80,8 +80,9 @@ class WorkspaceContentProvider extends RealFSProvider {
 	};
 }
 
-function workspaceMount({ mountDir, writable }: { mountDir: string; writable: boolean }) {
+function workspaceMount({ mountDir, writable }: { mountDir: string; writable: boolean }): VirtualProvider {
 	const content = new WorkspaceContentProvider(mountDir);
+	// @ts-expect-error -- Gondolin's HookedHandle getters return T | undefined where VirtualFileHandle declares prop?: T, so its SandboxVfsProvider does not satisfy its own VirtualProvider under exactOptionalPropertyTypes; remove this directive when Gondolin's types accept the flag (TypeScript then reports TS2578).
 	return new SandboxVfsProvider(writable ? content : new ReadonlyProvider(content), {
 		before: ({ op, path, oldPath, newPath }) => {
 			if ((path === "/" && (op === "rmdir" || op === "chmod")) ||
