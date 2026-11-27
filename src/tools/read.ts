@@ -13,7 +13,7 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 	".webp": "image/webp",
 };
 
-function isImageFile(filePath: string): string | null {
+function imageMimeType(filePath: string): string | null {
 	const ext = extname(filePath).toLowerCase();
 	return IMAGE_MIME_TYPES[ext] ?? null;
 }
@@ -40,7 +40,7 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 			{ path, offset, limit },
 			signal,
 		): Promise<{ content: (TextContent | ImageContent)[]; details: ReadToolDetails | undefined }> => {
-			const mimeType = isImageFile(path);
+			const mimeType = imageMimeType(path);
 
 			if (mimeType) {
 				const result = await executor.exec(`base64 < ${shellEscape(path)}`, { signal });
