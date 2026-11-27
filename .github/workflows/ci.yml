@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  typecheck-test:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,6 +28,28 @@ jobs:
       # Lint, typecheck, workflow and repository checks are defined once in prek.toml.
       - name: Run repository hooks
         uses: j178/prek-action@v3.1.1
+
+      # Every tests/vm-*.test.ts file runs in the vm job instead.
+      - name: Test
+        run: bun test --path-ignore-patterns='tests/vm-*.test.ts'
+
+  vm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.1.0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: 1.4.5
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Enable KVM for the QEMU tests
         run: |
@@ -50,7 +72,8 @@ jobs:
           sudo apt-get install -y qemu-system-x86 qemu-utils
           bun -e 'import { validateVMSandbox } from "pi-bot-core/vm-sandbox"; await validateVMSandbox();'
 
+      # --shard deals the sorted files round-robin across shards; the shard count follows the matrix size.
       - name: Test
         env:
           PI_BOT_TEST_VM_SANDBOX: "1"
-        run: bun test
+        run: bun test --shard=${{ matrix.shard }}/${{ strategy.job-total }} tests/vm-*.test.ts
