@@ -97,6 +97,6 @@ Run the opt-in VM test suites with these commands.
 
 | Suite | Command |
 | --- | --- |
-| QEMU VM suite (also run in CI) | `PI_BOT_TEST_VM_SANDBOX=1 bun test --no-env-file tests/vm-sandbox.test.ts` |
-| Public HTTPS test against `example.com` | `PI_BOT_TEST_VM_SANDBOX_WEB=1 bun test --no-env-file tests/vm-sandbox.test.ts` |
-| krun VM suite on a supported host | `PI_BOT_TEST_VM_SANDBOX_KRUN=1 bun test --no-env-file tests/vm-sandbox.test.ts -t krun` |
+| QEMU VM suite (also run in CI) | `PI_BOT_TEST_VM_SANDBOX=1 bun test --no-env-file tests/vm-*.test.ts` |
+| Public HTTPS test against `example.com` | `PI_BOT_TEST_VM_SANDBOX_WEB=1 bun test --no-env-file tests/vm-backend.test.ts` |
+| krun VM suite on a supported host | `PI_BOT_TEST_VM_SANDBOX_KRUN=1 bun test --no-env-file tests/vm-*.test.ts -t krun` |

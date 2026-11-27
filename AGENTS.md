@@ -41,7 +41,7 @@ For changes to the VM sandbox, web secrets, or how tools execute through the `Ex
 
 ```sh
 bun --no-env-file -e 'import { validateVMSandbox } from "pi-bot-core/vm-sandbox"; await validateVMSandbox();'  # caches the VM image
-PI_BOT_TEST_VM_SANDBOX=1 bun test --no-env-file tests/vm-sandbox.test.ts
+PI_BOT_TEST_VM_SANDBOX=1 bun test --no-env-file tests/vm-*.test.ts
 ```
 
 krun and public-HTTPS suites: see README "Integration and VM tests".
