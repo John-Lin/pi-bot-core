@@ -5,9 +5,8 @@ import { arr, bool, compile, lit, nullable, obj, opt, str, type Static } from "@
 
 /**
  * Platform-agnostic message log used by all pi bots (mom/Slack, Telegram,
- * Discord). Pulled out of pi-telegram-bot's `TelegramStore` and pi-mono/mom's
- * `ChannelStore`, both of which carried the same JSONL schema, dedupe map, and
- * "append a line per message" surface.
+ * Discord): a JSONL schema, a dedupe map, and an "append a line per message"
+ * surface.
  *
  * `id` is the platform-specific channel/chat key as a string (Slack channel id,
  * Telegram chat id stringified, Discord snowflake). Wrapper stores translate
@@ -17,7 +16,7 @@ import { arr, bool, compile, lit, nullable, obj, opt, str, type Static } from "@
  * Discord snowflake). We do NOT parse it as a time — bots that want
  * `LoggedMessage.date` to derive from `ts` (Slack does, Discord can via
  * snowflake) must fill `date` themselves before calling. When `date` is empty
- * we stamp current ISO time, matching pi-telegram-bot's prior behavior.
+ * we stamp current ISO time.
  *
  * Multi-row contract: a single `ts` MAY appear on more than one line when the
  * platform delivers an edit or a delete (Discord MessageUpdate /

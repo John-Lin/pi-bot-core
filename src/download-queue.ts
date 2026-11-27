@@ -3,11 +3,7 @@ import { join } from "path";
 import type { Logger } from "./log.js";
 
 /**
- * Sequential background download queue.
- *
- * Pulled out of pi-discord-bot's `AttachmentStore` and pi-telegram-bot's
- * `TelegramStore`, both of which implemented the same "single runner draining
- * a FIFO" pattern.
+ * Sequential background download queue: a single runner draining a FIFO.
  *
  * `source` is opaque to the queue — Discord passes a CDN URL, Telegram passes
  * a `file_id`. The bot's `downloadFile` strategy decides what to do with it.
