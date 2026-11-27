@@ -13,10 +13,12 @@ pass_filenames = false
 [[repos.hooks]]
 id = "lint"
 name = "Oxlint (source files)"
-entry = "bunx --no-install oxlint --report-unused-disable-directives-severity=error"
+# Run the package script so lint flags live only in package.json.
+entry = "bun --no-env-file run lint"
 language = "system"
 stages = ["pre-commit"]
 files = '^src/.*\.ts$'
+pass_filenames = false
 
 [[repos]]
 repo = "builtin"
@@ -24,3 +26,8 @@ hooks = [
   { id = "check-merge-conflict", args = ["--assume-in-merge"] },
   { id = "detect-private-key" },
 ]
+
+[[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.7.12"
+hooks = [{ id = "actionlint" }]
