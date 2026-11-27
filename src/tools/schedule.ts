@@ -28,10 +28,21 @@ export interface CommonScheduleArgs extends DirectScheduleFields {
 
 const scheduleFields = compile(scheduleFieldsSchema);
 
-type ScheduleTiming =
+/** When an event fires. Each `type` carries exactly the fields it needs. */
+export type ScheduleTiming =
 	| { type: "immediate" }
-	| { type: "one-shot"; at: string }
-	| { type: "periodic"; schedule: string; timezone: string };
+	| {
+		type: "one-shot";
+		/** ISO 8601. */
+		at: string;
+	}
+	| {
+		type: "periodic";
+		/** Cron syntax. */
+		schedule: string;
+		/** IANA timezone. */
+		timezone: string;
+	};
 
 const SLUG_RE = /^[a-z0-9-]{1,40}$/;
 
