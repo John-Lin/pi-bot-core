@@ -65,7 +65,7 @@ bun --no-env-file run typecheck
 bun test --no-env-file
 ```
 
-The `typecheck` script checks all TypeScript files under `src/` and `tests/`. The `lint` script runs `oxlint` on `src/`.
+The `typecheck` script checks all TypeScript files under `src/` and `tests/`. The `lint` script runs `oxlint` on `src/` and fails on unused `oxlint-disable` directives.
 
 ### Pre-commit hooks
 
@@ -75,7 +75,11 @@ Install [prek](https://github.com/j178/prek) (for example, run `brew install pre
 prek install
 ```
 
-On every commit, `prek` runs `bun --no-env-file run typecheck`, runs `oxlint` on staged TypeScript files under `src/`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. Run `prek run --all-files` to check the entire repository manually.
+On every commit, `prek` runs `bun --no-env-file run typecheck`, runs `bun --no-env-file run lint` when TypeScript files under `src/` are staged, checks staged workflow files with `actionlint`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. The first `actionlint` run builds it from source; prek uses an installed Go toolchain or downloads one. Run `prek run --all-files` to check the entire repository manually. CI runs the same hooks on all files.
+
+### Workflow dependencies
+
+`.github/workflows/actions.lock` pins every action the workflows use to a verified commit, and CI fails when it is out of sync. After adding a workflow or changing any `uses:`, install the [gh-actions-lock](https://github.com/github/gh-actions-lock) extension (`gh extension install github/gh-actions-lock`), run `gh actions-lock`, and commit the lockfile with the workflow change.
 
 ### Integration and VM tests
 

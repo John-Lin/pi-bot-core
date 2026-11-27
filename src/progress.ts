@@ -160,6 +160,7 @@ export class ProgressTracker {
 }
 
 function normalizeText(text: string): string {
+	// oxlint-disable-next-line eslint/no-control-regex -- Strip C0/C1 control characters from untrusted labels before display.
 	return text.replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g, "").replace(/\s+/g, " ").trim();
 }
 

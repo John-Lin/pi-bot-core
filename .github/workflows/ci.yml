@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+  # Check every pull request, including ones stacked on other pull request branches.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -15,21 +15,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
-          bun-version: latest
+          bun-version: 1.4.5
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Lint source
-        run: bun run lint
-
-      - name: Typecheck
-        run: bun run typecheck
+      # Lint, typecheck, workflow and repository checks are defined once in prek.toml.
+      - name: Run repository hooks
+        uses: j178/prek-action@v3.1.1
 
       - name: Enable KVM for the QEMU tests
         run: |
