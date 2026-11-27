@@ -4,6 +4,7 @@ import { ensureTelegraphAccessToken, loadTelegraphAccessToken, telegraphAccountP
 import { createPage, editPage, getPages, getRenderablePage } from "../telegraph/client.js";
 import { parse } from "../telegraph/parser.js";
 import { serialize } from "../telegraph/serializer.js";
+import type { Page } from "../telegraph/types.js";
 
 async function requireAccessToken(workspace: string): Promise<string> {
 	const file = telegraphAccountPath(workspace);
@@ -58,7 +59,7 @@ const publishSchema = obj({
  */
 export function createTelegraphPublishTool(
 	workspace: string,
-	defaults: { short_name: string; author_name: string },
+	defaults: Parameters<typeof ensureTelegraphAccessToken>[1],
 ): AgentTool<typeof publishSchema> {
 	return {
 		name: "telegraph_publish",
@@ -237,7 +238,7 @@ export function createTelegraphListTool(workspace: string): AgentTool<typeof lis
 			signal?.throwIfAborted();
 
 			const access_token = await requireAccessToken(workspace);
-			const args: { access_token: string; offset?: number; limit?: number } = { access_token };
+			const args: Parameters<typeof getPages>[0] = { access_token };
 			if (offset !== undefined) args.offset = offset;
 			if (limit !== undefined) args.limit = limit;
 
@@ -262,7 +263,7 @@ export function createTelegraphListTool(workspace: string): AgentTool<typeof lis
 
 function formatPageList(
 	totalCount: number,
-	pages: { path: string; url: string; title: string; views: number }[],
+	pages: Pick<Page, "path" | "url" | "title" | "views">[],
 ): string {
 	if (pages.length === 0) {
 		return "No pages published by this workspace yet.";
