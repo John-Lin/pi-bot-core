@@ -43,7 +43,7 @@ export interface BotAgentExtensionsOptions {
 	 */
 	name: string;
 	/** Servers from `loadBotMcpConfig`. Without servers, Codemode still serves the native tools. */
-	mcp?: BotMcpConfig;
+	mcp?: BotMcpConfig | undefined;
 	/** File that MCP server log notifications are appended to. */
 	mcpLogPath: string;
 	/** Returns the platform-built system prompt for the turn that is starting. */
@@ -109,7 +109,7 @@ class BotMcpTransportManager {
 				]),
 			);
 			// The SDK supplies an OAuth provider only when no Authorization header is configured.
-			transport = new StreamableHttpTransport({ url: config.url, headers, authProvider });
+			transport = new StreamableHttpTransport({ url: config.url, headers, ...(authProvider ? { authProvider } : {}) });
 		} else {
 			const env = Object.fromEntries(
 				Object.entries(config.env ?? {}).map(([name, value]) => [
@@ -119,7 +119,7 @@ class BotMcpTransportManager {
 			);
 			transport = new StdioTransport({
 				command: expandHome(config.command),
-				args: config.args?.map(expandHome),
+				...(config.args ? { args: config.args.map(expandHome) } : {}),
 				cwd: resolve(cwd, expandHome(config.cwd ?? ".")),
 				env,
 				stderr: "pipe",

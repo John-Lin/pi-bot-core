@@ -18,7 +18,7 @@ export function startMcpHttpServer() {
 	let authorization: string | null = null;
 	let commandHeader: string | null = null;
 	let sessionExpired = false;
-	const requests: Array<{ method: string; rpcMethod?: string }> = [];
+	const requests: Array<{ method: string; rpcMethod?: string | undefined }> = [];
 	const reconnectStarted = Promise.withResolvers<void>();
 	const resumeInitialization = Promise.withResolvers<void>();
 	const server = Bun.serve({
