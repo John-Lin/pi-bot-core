@@ -77,6 +77,10 @@ prek install
 
 On every commit, `prek` runs `bun --no-env-file run typecheck`, runs `bun --no-env-file run lint` when TypeScript files under `src/` are staged, checks staged workflow files with `actionlint`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. The first `actionlint` run builds it from source; prek uses an installed Go toolchain or downloads one. Run `prek run --all-files` to check the entire repository manually. CI runs the same hooks on all files.
 
+### Workflow dependencies
+
+`.github/workflows/actions.lock` pins every action the workflows use to a verified commit, and CI fails when it is out of sync. After adding a workflow or changing any `uses:`, install the [gh-actions-lock](https://github.com/github/gh-actions-lock) extension (`gh extension install github/gh-actions-lock`), run `gh actions-lock`, and commit the lockfile with the workflow change.
+
 ### Integration and VM tests
 
 The Codemode and MCP tests run real stdio, streamable HTTP, and local OAuth fixture servers using temporary `HOME` and `PI_CODING_AGENT_DIR` directories. These tests drive the SDK tool pipeline with synthetic assistant messages and never call a model.

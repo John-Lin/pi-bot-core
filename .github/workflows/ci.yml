@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5.1.0
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 1.4.5
 
@@ -27,7 +27,7 @@ jobs:
 
       # Lint, typecheck, workflow and repository checks are defined once in prek.toml.
       - name: Run repository hooks
-        uses: j178/prek-action@v3
+        uses: j178/prek-action@v3.1.1
 
       - name: Enable KVM for the QEMU tests
         run: |
