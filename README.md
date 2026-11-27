@@ -75,7 +75,7 @@ Install [prek](https://github.com/j178/prek) (for example, run `brew install pre
 prek install
 ```
 
-On every commit, `prek` runs `bun --no-env-file run typecheck`, runs `oxlint` on staged TypeScript files under `src/`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. Run `prek run --all-files` to check the entire repository manually.
+On every commit, `prek` runs `bun --no-env-file run typecheck`, runs `oxlint` on staged TypeScript files under `src/`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. Run `prek run --all-files` to check the entire repository manually. CI runs the same hooks on all files and checks workflow files with `actionlint`.
 
 ### Integration and VM tests
 
