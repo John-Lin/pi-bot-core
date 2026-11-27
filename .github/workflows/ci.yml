@@ -72,8 +72,8 @@ jobs:
           sudo apt-get install -y qemu-system-x86 qemu-utils
           bun -e 'import { validateVMSandbox } from "pi-bot-core/vm-sandbox"; await validateVMSandbox();'
 
-      # --shard deals the sorted files round-robin across shards; with four VM files each shard runs one.
+      # --shard deals the sorted files round-robin across shards; the shard count follows the matrix size.
       - name: Test
         env:
           PI_BOT_TEST_VM_SANDBOX: "1"
-        run: bun test --shard=${{ matrix.shard }}/4 tests/vm-*.test.ts
+        run: bun test --shard=${{ matrix.shard }}/${{ strategy.job-total }} tests/vm-*.test.ts
