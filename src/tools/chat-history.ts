@@ -52,7 +52,7 @@ export function createChatHistoryTool(opts: CreateChatHistoryToolOptions): Agent
 			"Search older messages in the current conversation's log by free-text query and/or date range. Use this when context older than the active conversation window is needed. Edits and deletions are honoured (latest version per message; tombstoned messages excluded).",
 		parameters: chatHistorySchema,
 		execute: async (_toolCallId, args, signal) => {
-			signal?.throwIfAborted?.();
+			signal?.throwIfAborted();
 
 			const limit = Math.max(1, Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
 			const query = args.query?.toLowerCase();

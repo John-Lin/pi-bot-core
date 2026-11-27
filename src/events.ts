@@ -5,7 +5,7 @@ import { basename, join } from "path";
 import { fsErrorCode } from "./fs-errors.js";
 import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "./fs-watch.js";
 import { terminalOutput } from "./terminal-output.js";
-import type { ScheduleEventType } from "./tools/schedule.js";
+import type { ScheduleTiming } from "./tools/schedule.js";
 
 /**
  * Generic event scheduler.
@@ -26,22 +26,18 @@ import type { ScheduleEventType } from "./tools/schedule.js";
 // Public types
 // ============================================================================
 
-/** Common shape every scheduled event must satisfy. Routing fields live in TEvent. */
-export interface ScheduledEventCommon {
-	type: ScheduleEventType;
+/**
+ * Common shape every scheduled event must satisfy, discriminated by `type`.
+ * Routing fields live in TEvent.
+ */
+export type ScheduledEventCommon = ScheduleTiming & {
 	/**
 	 * Synthetic user message. Note: when delivered via {@link FiredEvent} the
 	 * dispatcher receives a prefixed form (`[EVENT:name:type:schedule] ...`),
 	 * not this raw value.
 	 */
 	text: string;
-	/** Required for type='one-shot'. ISO 8601. */
-	at?: string;
-	/** Required for type='periodic'. Cron syntax. */
-	schedule?: string;
-	/** Required for type='periodic'. IANA timezone. */
-	timezone?: string;
-}
+};
 
 /**
  * What the dispatcher receives. The watcher sets `name` and prefixes `text`;
@@ -92,6 +88,9 @@ const RETRY_BASE_MS = 100;
 const MAX_QUEUED = 5;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const IMMEDIATE_STALE_TOLERANCE_MS = 5 * 60 * 1000;
+
+type OneShotTiming = Extract<ScheduleTiming, { type: "one-shot" }>;
+type PeriodicTiming = Extract<ScheduleTiming, { type: "periodic" }>;
 
 type EventFilename = string & { readonly __brand: "EventFilename" };
 
@@ -312,18 +311,19 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 
 		this.knownFiles.add(filename);
 
+		// Switch narrowing does not refine the generic TEvent itself, so timing handlers also take the narrowed event as `timing`.
 		switch (event.type) {
 			case "immediate":
 				this.handleImmediate(filename, event, generation);
 				break;
 			case "one-shot":
-				this.handleOneShot(filename, event, generation);
+				this.handleOneShot(filename, event, event, generation);
 				break;
 			case "periodic":
-				this.handlePeriodic(filename, event, generation);
+				this.handlePeriodic(filename, event, event, generation);
 				break;
 			default: {
-				const _exhaustive: never = event.type;
+				const _exhaustive: never = event;
 				void _exhaustive;
 			}
 		}
@@ -346,13 +346,14 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		void this.execute(filename, event, generation);
 	}
 
-	private handleOneShot(filename: EventFilename, event: TEvent, generation: number): void {
-		if (!event.at) {
+	private handleOneShot(filename: EventFilename, event: TEvent, timing: OneShotTiming, generation: number): void {
+		// policy.parse is caller-supplied, so a typed `at` may still be empty or missing at runtime.
+		if (!timing.at) {
 			this.log.warn(`One-shot event missing 'at', deleting: ${filename}`);
 			this.deleteFile(filename);
 			return;
 		}
-		const atTime = Date.parse(event.at);
+		const atTime = Date.parse(timing.at);
 		if (Number.isNaN(atTime)) {
 			this.log.warn(`One-shot event has an invalid 'at', deleting: ${filename}`);
 			this.deleteFile(filename);
@@ -383,14 +384,15 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 		arm(delay);
 	}
 
-	private handlePeriodic(filename: EventFilename, event: TEvent, generation: number): void {
-		if (!event.schedule || !event.timezone) {
+	private handlePeriodic(filename: EventFilename, event: TEvent, timing: PeriodicTiming, generation: number): void {
+		// policy.parse is caller-supplied, so typed timing fields may still be empty or missing at runtime.
+		if (!timing.schedule || !timing.timezone) {
 			this.log.warn(`Periodic event missing schedule/timezone, deleting: ${filename}`);
 			this.deleteFile(filename);
 			return;
 		}
 		try {
-			const cron = new Cron(event.schedule, { timezone: event.timezone }, () => {
+			const cron = new Cron(timing.schedule, { timezone: timing.timezone }, () => {
 				if (!this.isActive(generation)) return;
 				this.log.info(`Executing periodic event: ${filename}`);
 				void this.execute(filename, event, generation);
@@ -401,7 +403,7 @@ export class EventsWatcher<TEvent extends ScheduledEventCommon> {
 				`Scheduled periodic event: ${filename}, next run: ${next?.toISOString() ?? "unknown"}`,
 			);
 		} catch (err) {
-			this.log.warn(`Invalid cron schedule for ${filename}: ${event.schedule}`, String(err));
+			this.log.warn(`Invalid cron schedule for ${filename}: ${timing.schedule}`, String(err));
 			this.deleteFile(filename);
 		}
 	}

@@ -1,26 +1,26 @@
 interface ToolIdentity {
 	toolCallId: string;
 	toolName: string;
-	parentToolCallId?: string;
+	parentToolCallId?: string | undefined;
 }
 
 /** Bot-owned projection of SDK events. Labels must be safe, human-readable purposes, not arguments. */
 export type ProgressEvent =
-	| (ToolIdentity & { type: "tool_start"; label?: string })
-	| (ToolIdentity & { type: "tool_end"; isError: boolean; durationMs?: number })
+	| (ToolIdentity & { type: "tool_start"; label?: string | undefined })
+	| (ToolIdentity & { type: "tool_end"; isError: boolean; durationMs?: number | undefined })
 	| { type: "compaction" }
 	| { type: "retry"; attempt: number; max: number };
 
 type ToolStatus =
 	| { kind: "running" }
-	| { kind: "finished"; isError: boolean; durationMs?: number };
+	| { kind: "finished"; isError: boolean; durationMs?: number | undefined };
 
 interface ToolProgress {
 	kind: "tool";
 	id: string;
 	toolName: string;
-	label?: string;
-	parentToolCallId?: string;
+	label?: string | undefined;
+	parentToolCallId?: string | undefined;
 	isCodemode: boolean;
 	hasChildren: boolean;
 	status: ToolStatus;
@@ -160,6 +160,7 @@ export class ProgressTracker {
 }
 
 function normalizeText(text: string): string {
+	// oxlint-disable-next-line eslint/no-control-regex -- Strip C0/C1 control characters from untrusted labels before display.
 	return text.replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g, "").replace(/\s+/g, " ").trim();
 }
 
@@ -168,7 +169,7 @@ function truncate(text: string, budget: number): string {
 	return chars.length > budget ? `${chars.slice(0, budget - 1).join("")}…` : text;
 }
 
-function toolTitle(toolName: string, label?: string): { toolName: string; label?: string } {
+function toolTitle(toolName: string, label?: string): { toolName: string; label?: string | undefined } {
 	const name = normalizeText(toolName) || "tool";
 	const purpose = normalizeText(label ?? "");
 	const remaining = MAX_PROGRESS_TITLE_LENGTH - Array.from(name).length - " — ".length;

@@ -5,7 +5,7 @@ import { basename, join, posix, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM, type ResolvedImage, type VMOptions } from "@earendil-works/gondolin";
+import { ERRNO, ReadonlyProvider, RealFSProvider, resolveImageSelector, SandboxVfsProvider, ShadowProvider, VM, type ResolvedImage, type VirtualProvider, type VMOptions } from "@earendil-works/gondolin";
 import { createSandboxWebSecretHooks, normalizeSandboxWebSecrets, type ActiveSandboxWebSecret, type SandboxWebSecret } from "./sandbox-web-secrets.js";
 import { SandboxConfigError, type ExecOptions, type ExecResult, type Executor } from "./sandbox.js";
 import { ensureWorkspacePathIsSafe } from "./workspace-bootstrap.js";
@@ -80,8 +80,9 @@ class WorkspaceContentProvider extends RealFSProvider {
 	};
 }
 
-function workspaceMount(mountDir: string, writable: boolean) {
+function workspaceMount({ mountDir, writable }: { mountDir: string; writable: boolean }): VirtualProvider {
 	const content = new WorkspaceContentProvider(mountDir);
+	// @ts-expect-error -- Gondolin's HookedHandle getters return T | undefined where VirtualFileHandle declares prop?: T, so its SandboxVfsProvider does not satisfy its own VirtualProvider under exactOptionalPropertyTypes; remove this directive when Gondolin's types accept the flag (TypeScript then reports TS2578).
 	return new SandboxVfsProvider(writable ? content : new ReadonlyProvider(content), {
 		before: ({ op, path, oldPath, newPath }) => {
 			if ((path === "/" && (op === "rmdir" || op === "chmod")) ||
@@ -362,21 +363,21 @@ export class VMSandboxTurn implements Executor {
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
 		const secretHooks = createSandboxWebSecretHooks(this.secrets);
-		const contentMount = (path: string) => workspaceMount(path, this.writableWorkspaceContent);
+		const contentMount = (path: string) => workspaceMount({ mountDir: path, writable: this.writableWorkspaceContent });
 		this.vm = new VM({
 			...vmResources(),
-			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks: secretHooks?.httpHooks, allowWebSockets: false },
-			env: secretHooks?.env,
+			sandbox: { vmm: this.backend, imagePath, netEnabled: true, ...(secretHooks ? { httpHooks: secretHooks.httpHooks } : {}), allowWebSockets: false },
+			...(secretHooks ? { env: secretHooks.env } : {}),
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 			vfs: {
 				mounts: {
-					[cwd]: new ShadowProvider(workspaceMount(paths.chatDir, true), {
+					[cwd]: new ShadowProvider(workspaceMount({ mountDir: paths.chatDir, writable: true }), {
 						// MEMORY.md is the only projected file; preserve its identity for host reads.
 						shouldShadow: ({ path, op }) => path === "/"
 							? !["stat", "lstat", "realpath", "readdir", "access"].includes(op)
 							: path !== "/MEMORY.md" || !["open", "stat", "lstat", "realpath", "readdir", "access"].includes(op),
 					}),
-					[`${cwd}/scratch`]: workspaceMount(paths.scratchDir, true),
+					[`${cwd}/scratch`]: workspaceMount({ mountDir: paths.scratchDir, writable: true }),
 					[`${cwd}/attachments`]: contentMount(paths.attachmentsDir),
 					[`${cwd}/skills`]: contentMount(paths.skillsDir),
 					[`${WORKSPACE_GUEST_ROOT}/skills`]: contentMount(sharedSkills),

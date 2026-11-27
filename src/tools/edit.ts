@@ -2,6 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { obj, str } from "@earendil-works/pi-schema";
 import * as Diff from "diff";
 import type { Executor } from "../sandbox.js";
+import { shellEscape } from "./shell-escape.js";
 
 /**
  * Generate a unified diff string with line numbers and context.
@@ -106,11 +107,7 @@ export function createEditTool(executor: Executor): AgentTool<typeof editSchema>
 		description:
 			"Edit a file by replacing exact text. The oldText must match exactly (including whitespace). Use this for precise, surgical edits.",
 		parameters: editSchema,
-		execute: async (
-			_toolCallId: string,
-			{ path, oldText, newText }: { label: string; path: string; oldText: string; newText: string },
-			signal?: AbortSignal,
-		) => {
+		execute: async (_toolCallId, { path, oldText, newText }, signal) => {
 			const readResult = await executor.exec(`cat ${shellEscape(path)}`, { signal });
 			if (readResult.code !== 0) {
 				throw new Error(readResult.stderr || `File not found: ${path}`);
@@ -160,8 +157,4 @@ export function createEditTool(executor: Executor): AgentTool<typeof editSchema>
 			};
 		},
 	};
-}
-
-function shellEscape(s: string): string {
-	return `'${s.replace(/'/g, "'\\''")}'`;
 }

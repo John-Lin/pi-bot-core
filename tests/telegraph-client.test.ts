@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, expectTypeOf, test } from "bun:test";
-import { createAccount, createPage, editPage, getPage, getPages, type Page } from "pi-bot-core/telegraph";
+import { createAccount, createPage, editPage, getPage, getPages, type CreatedAccount, type Page, type RenderablePage } from "pi-bot-core/telegraph";
 
 interface CapturedRequest {
 	url: string;
@@ -58,7 +58,8 @@ describe("createAccount", () => {
 		expect(captured?.headers["Content-Type"]).toBe("application/json");
 		expect(captured?.body).toEqual({ short_name: "n", author_name: "a" });
 		expect(result.access_token).toBe("tok");
-		expectTypeOf(result.auth_url).toEqualTypeOf<string>();
+		expectTypeOf(result).toEqualTypeOf<CreatedAccount>();
+		expectTypeOf(result.auth_url).toEqualTypeOf<string | undefined>();
 	});
 
 	test("keeps the response unchanged when Telegraph omits the auth URL", async () => {
@@ -134,7 +135,10 @@ describe("getPage", () => {
 		};
 
 		const result = await getPage("Foo-12-31");
-		expectTypeOf(result).toEqualTypeOf<Page<true>>();
+		expectTypeOf(result).toEqualTypeOf<RenderablePage>();
+		expectTypeOf<undefined>().toExtend<typeof result.content>();
+		expectTypeOf<null>().toExtend<typeof result.content>();
+		expectTypeOf((flag: boolean) => getPage("p", flag)).returns.resolves.toEqualTypeOf<Page | RenderablePage>();
 
 		expect(captured?.url).toBe("https://api.telegra.ph/getPage");
 		expect(captured?.body).toEqual({ path: "Foo-12-31", return_content: true });
@@ -165,7 +169,8 @@ describe("getPage", () => {
 			body: { ok: true, result: { path: "p", url: "u", title: "t", description: "", views: 0 } },
 		};
 		const result = await getPage("p", false);
-		expectTypeOf(result).toEqualTypeOf<Page<true>>();
+		expectTypeOf(result).toEqualTypeOf<Page>();
+		expectTypeOf(result).not.toHaveProperty("content");
 		expect(Object.hasOwn(result, "content")).toBe(false);
 		expect(captured?.body).toEqual({ path: "p", return_content: false });
 	});

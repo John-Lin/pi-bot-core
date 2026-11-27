@@ -14,9 +14,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { EventsWatcher, type FiredEvent, type ScheduledEventCommon } from "../src/events.js";
 
-interface TestEvent extends ScheduledEventCommon {
+type TestEvent = ScheduledEventCommon & {
 	chatId: number;
-}
+};
 
 function deferred() {
 	let resolve!: () => void;

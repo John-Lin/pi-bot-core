@@ -3,6 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import type { Executor } from "../sandbox.js";
+import { shellEscape } from "./shell-escape.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.js";
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
@@ -13,7 +14,7 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 	".webp": "image/webp",
 };
 
-function isImageFile(filePath: string): string | null {
+function imageMimeType(filePath: string): string | null {
 	const ext = extname(filePath).toLowerCase();
 	return IMAGE_MIME_TYPES[ext] ?? null;
 }
@@ -36,11 +37,11 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files.`,
 		parameters: readSchema,
 		execute: async (
-			_toolCallId: string,
-			{ path, offset, limit }: { label: string; path: string; offset?: number; limit?: number },
-			signal?: AbortSignal,
+			_toolCallId,
+			{ path, offset, limit },
+			signal,
 		): Promise<{ content: (TextContent | ImageContent)[]; details: ReadToolDetails | undefined }> => {
-			const mimeType = isImageFile(path);
+			const mimeType = imageMimeType(path);
 
 			if (mimeType) {
 				const result = await executor.exec(`base64 < ${shellEscape(path)}`, { signal });
@@ -124,8 +125,4 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 			};
 		},
 	};
-}
-
-function shellEscape(s: string): string {
-	return `'${s.replace(/'/g, "'\\''")}'`;
 }

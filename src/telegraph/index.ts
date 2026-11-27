@@ -6,11 +6,13 @@ export {
 	type AccessToken,
 	type Account,
 	type AuthUrl,
+	type CreatedAccount,
 	type Node,
 	type NodeElement,
 	type Page,
 	type PageCount,
 	type PageList,
+	type RenderablePage,
 	SUPPORTED_TAGS,
 	type SupportedTag,
 } from "./types.js";

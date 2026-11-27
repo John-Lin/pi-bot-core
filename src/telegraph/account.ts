@@ -1,9 +1,9 @@
-import { compile } from "@earendil-works/pi-schema";
+import { compile, type Static } from "@earendil-works/pi-schema";
 import { readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { fsErrorCode } from "../fs-errors.js";
 import { createAccount } from "./client.js";
-import { accessTokenSchema, storedAccountSchema, type CreatedAccount } from "./types.js";
+import { accessTokenSchema, storedAccountSchema } from "./types.js";
 
 const storedAccount = compile(storedAccountSchema);
 const storedAccessToken = compile(accessTokenSchema);
@@ -14,9 +14,10 @@ export function telegraphAccountPath(workspace: string): string {
 
 /**
  * Persisted Telegraph account used to author pages on behalf of a workspace.
- * Stored at `<workspace>/.telegraph.json` and reused across all chats.
+ * Stored at `<workspace>/.telegraph.json` and reused across all chats. Copied
+ * files may hold only `access_token`, so the display names are optional.
  */
-export interface TelegraphAccount extends Pick<CreatedAccount, "access_token" | "short_name" | "author_name"> {}
+export interface TelegraphAccount extends Static<typeof storedAccountSchema> {}
 
 function invalidAccount(file: string): Error {
 	return new Error(`Invalid Telegraph account ${file}`);
@@ -62,8 +63,7 @@ export async function ensureTelegraphAccount(
 	const existing = await readAccountFile(file);
 	if (existing === undefined) return createStoredAccount(file, defaults);
 	if (!storedAccount.check(existing)) throw invalidAccount(file);
-	// oxlint-disable-next-line typescript/consistent-type-assertions -- Preserve the published type and reuse token-only files without fabricating names.
-	return existing as TelegraphAccount;
+	return existing;
 }
 
 export async function ensureTelegraphAccessToken(workspace: string, defaults: Parameters<typeof ensureTelegraphAccount>[1]): Promise<string> {

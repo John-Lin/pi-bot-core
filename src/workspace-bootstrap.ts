@@ -21,10 +21,10 @@ export class WorkspaceBootstrapSecurityError extends Error {
 }
 
 const BOOTSTRAP_FILES = [
-	["AGENTS.md", "agents_md", "# Agent Instructions\n", MAX_BOOTSTRAP_FILE_CHARS],
-	["SOUL.md", "soul_md", "# Persona\n", MAX_BOOTSTRAP_FILE_CHARS],
-	["IDENTITY.md", "identity_md", "# Identity\n", MAX_BOOTSTRAP_FILE_CHARS],
-	["USER.md", "user_md", "# User Preferences\n", 4_000],
+	{ name: "AGENTS.md", tag: "agents_md", starter: "# Agent Instructions\n", maxChars: MAX_BOOTSTRAP_FILE_CHARS },
+	{ name: "SOUL.md", tag: "soul_md", starter: "# Persona\n", maxChars: MAX_BOOTSTRAP_FILE_CHARS },
+	{ name: "IDENTITY.md", tag: "identity_md", starter: "# Identity\n", maxChars: MAX_BOOTSTRAP_FILE_CHARS },
+	{ name: "USER.md", tag: "user_md", starter: "# User Preferences\n", maxChars: 4_000 },
 ] as const;
 
 /** Ensure the workspace exists without traversing a persistent linked path component. */
@@ -35,10 +35,10 @@ export function ensureWorkspacePathIsSafe(workspace: string): void {
 /** Check every destination before creating any part of a workspace layout. */
 export function ensureWorkspaceDirectoriesAreSafe(directories: readonly string[]): void {
 	assertNoFollowSupport();
-	const missing = directories.filter((path) => inspectWorkspacePath(path, true) === undefined);
+	const missing = directories.filter((path) => inspectWorkspacePath(path, { rejectUnsafe: true }) === undefined);
 	for (const path of missing) mkdirSync(resolve(path), { recursive: true });
 	for (const path of directories) {
-		if (inspectWorkspacePath(path, true) === undefined) {
+		if (inspectWorkspacePath(path, { rejectUnsafe: true }) === undefined) {
 			throw unsafeWorkspacePathError(resolve(path), "no longer exists");
 		}
 	}
@@ -48,7 +48,7 @@ export function ensureWorkspaceDirectoriesAreSafe(directories: readonly string[]
 export function ensureWorkspaceBootstrap(workspace: string): void {
 	const workspaceIdentity = inspectWorkspacePath(workspace);
 	if (workspaceIdentity === undefined) return;
-	for (const [name, , starter] of BOOTSTRAP_FILES) {
+	for (const { name, starter } of BOOTSTRAP_FILES) {
 		if (!workspacePathIsUnchanged(workspaceIdentity)) return;
 		try {
 			writeFileSync(join(workspace, name), starter, { flag: "wx" });
@@ -64,7 +64,10 @@ interface PathIdentity {
 	inode: bigint;
 }
 
-function inspectWorkspacePath(workspace: string, rejectUnsafe = false): PathIdentity[] | undefined {
+function inspectWorkspacePath(
+	workspace: string,
+	{ rejectUnsafe = false }: { rejectUnsafe?: boolean } = {},
+): PathIdentity[] | undefined {
 	const absolute = resolve(workspace);
 	const root = parse(absolute).root;
 	const identities: PathIdentity[] = [];
@@ -103,7 +106,7 @@ function workspacePathIsUnchanged(identities: PathIdentity[]): boolean {
 	}
 }
 
-function readBoundedUtf8(fd: number, fileSize: number, maxChars: number): {
+function readBoundedUtf8({ fd, fileSize, maxChars }: { fd: number; fileSize: number; maxChars: number }): {
 	content: string;
 	truncated: boolean;
 } {
@@ -135,7 +138,7 @@ function unsafeWorkspacePathError(path: string, reason: string): WorkspaceBootst
 export function readWorkspaceBootstrap(workspace: string, visibleWorkspace?: string): string {
 	const noFollow = assertNoFollowSupport();
 	const workspaceIdentity = inspectWorkspacePath(workspace);
-	return BOOTSTRAP_FILES.map(([name, tag, , maxChars]) => {
+	return BOOTSTRAP_FILES.map(({ name, tag, maxChars }) => {
 		const path = join(workspace, name);
 		const label = visibleWorkspace ? `${visibleWorkspace}/${name}` : `${name} (host-managed)`;
 		let content = "";
@@ -149,7 +152,7 @@ export function readWorkspaceBootstrap(workspace: string, visibleWorkspace?: str
 			fd = openSync(path, constants.O_RDONLY | noFollow | (constants.O_NONBLOCK ?? 0));
 			const stats = fstatSync(fd);
 			if (stats.isFile() && workspacePathIsUnchanged(workspaceIdentity)) {
-				const result = readBoundedUtf8(fd, stats.size, maxChars);
+				const result = readBoundedUtf8({ fd, fileSize: stats.size, maxChars });
 				if (workspacePathIsUnchanged(workspaceIdentity)) {
 					content = result.content;
 					truncated = result.truncated;

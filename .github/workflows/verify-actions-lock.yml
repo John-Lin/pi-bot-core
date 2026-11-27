@@ -1,0 +1,22 @@
+name: Verify actions lockfile
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.1.0
+        with:
+          persist-credentials: false
+
+      # Fails when actions.lock is out of sync with the workflows or a locked pin no longer verifies upstream.
+      - name: Verify actions.lock
+        uses: github/gh-actions-lock@verify/v0.5.1

@@ -24,7 +24,7 @@
     "./telegraph": "./src/telegraph/index.ts"
   },
   "scripts": {
-    "lint": "oxlint src",
+    "lint": "oxlint --report-unused-disable-directives-severity=error src",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

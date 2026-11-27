@@ -1,6 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { obj, str } from "@earendil-works/pi-schema";
 import type { Executor } from "../sandbox.js";
+import { shellEscape } from "./shell-escape.js";
 
 const writeSchema = obj({
 	label: str({ description: "Brief description of what you're writing (shown to user)" }),
@@ -15,11 +16,7 @@ export function createWriteTool(executor: Executor): AgentTool<typeof writeSchem
 		description:
 			"Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
 		parameters: writeSchema,
-		execute: async (
-			_toolCallId: string,
-			{ path, content }: { label: string; path: string; content: string },
-			signal?: AbortSignal,
-		) => {
+		execute: async (_toolCallId, { path, content }, signal) => {
 			const dir = path.includes("/") ? path.substring(0, path.lastIndexOf("/")) : ".";
 
 			// Use printf to handle content with special characters; shell-escape everything.
@@ -36,8 +33,4 @@ export function createWriteTool(executor: Executor): AgentTool<typeof writeSchem
 			};
 		},
 	};
-}
-
-function shellEscape(s: string): string {
-	return `'${s.replace(/'/g, "'\\''")}'`;
 }

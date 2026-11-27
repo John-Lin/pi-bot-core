@@ -4,9 +4,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { EventsWatcher, type FiredEvent, type ScheduledEventCommon } from "../src/events.js";
 
-interface TestEvent extends ScheduledEventCommon {
+type TestEvent = ScheduledEventCommon & {
 	chatId: number;
-}
+};
 
 let eventsDir: string;
 let watcher: EventsWatcher<TestEvent>;
@@ -68,6 +68,46 @@ test("dispatch replaces the source filename and text types without flattening ro
 	expectTypeOf<DeliveredEvent["name"]>().toEqualTypeOf<string>();
 	expectTypeOf<Extract<DeliveredEvent, { type: "immediate" }>["chatId"]>().toEqualTypeOf<number>();
 	expectTypeOf<Extract<DeliveredEvent, { type: "one-shot" }>["channelId"]>().toEqualTypeOf<string>();
+});
+
+test("watcher events accept consumer timing unions and reject optional-field bags", () => {
+	interface ImmediateEvent {
+		type: "immediate";
+		chatId: number;
+		threadId?: number;
+		text: string;
+	}
+	interface OneShotEvent {
+		type: "one-shot";
+		chatId: number;
+		threadId?: number;
+		text: string;
+		at: string;
+	}
+	interface PeriodicEvent {
+		type: "periodic";
+		chatId: number;
+		threadId?: number;
+		text: string;
+		schedule: string;
+		timezone: string;
+	}
+	type ConsumerEvent = ImmediateEvent | OneShotEvent | PeriodicEvent;
+	type PeriodicWithoutSchedule = { type: "periodic"; text: string; timezone: string };
+	type OptionalFieldBag = {
+		type: "immediate" | "one-shot" | "periodic";
+		text: string;
+		at?: string;
+		schedule?: string;
+		timezone?: string;
+	};
+
+	expectTypeOf<ConsumerEvent>().toExtend<ScheduledEventCommon>();
+	expectTypeOf<EventsWatcher<ConsumerEvent>["start"]>().toEqualTypeOf<() => void>();
+	// @ts-expect-error A periodic event must carry its schedule.
+	expectTypeOf<EventsWatcher<PeriodicWithoutSchedule>["start"]>().toEqualTypeOf<() => void>();
+	// @ts-expect-error Timing fields must follow the event type.
+	expectTypeOf<EventsWatcher<OptionalFieldBag>["start"]>().toEqualTypeOf<() => void>();
 });
 
 describe("EventsWatcher immediate startup tolerance", () => {
