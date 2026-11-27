@@ -366,7 +366,7 @@ export class VMSandboxTurn implements Executor {
 		this.vm = new VM({
 			...vmResources(),
 			sandbox: { vmm: this.backend, imagePath, netEnabled: true, ...(secretHooks ? { httpHooks: secretHooks.httpHooks } : {}), allowWebSockets: false },
-			env: secretHooks?.env,
+			...(secretHooks ? { env: secretHooks.env } : {}),
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 			vfs: {
 				mounts: {
