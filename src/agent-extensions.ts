@@ -43,7 +43,7 @@ export interface BotAgentExtensionsOptions {
 	 */
 	name: string;
 	/** Servers from `loadBotMcpConfig`. Without servers, Codemode still serves the native tools. */
-	mcp?: BotMcpConfig;
+	mcp?: BotMcpConfig | undefined;
 	/** File that MCP server log notifications are appended to. */
 	mcpLogPath: string;
 	/** Returns the platform-built system prompt for the turn that is starting. */

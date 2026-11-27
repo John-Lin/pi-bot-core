@@ -27,8 +27,8 @@ export interface Executor {
 
 export interface ExecOptions {
 	/** Timeout in seconds. No timeout if omitted or <= 0. */
-	timeout?: number;
-	signal?: AbortSignal;
+	timeout?: number | undefined;
+	signal?: AbortSignal | undefined;
 }
 
 export interface ExecResult {

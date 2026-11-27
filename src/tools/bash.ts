@@ -11,7 +11,7 @@ const bashSchema = obj({
 
 export interface BashToolDetails {
 	truncation?: TruncationResult;
-	fullOutputPath?: string;
+	fullOutputPath?: string | undefined;
 }
 
 export function createBashTool(executor: Executor): AgentTool<typeof bashSchema> {
