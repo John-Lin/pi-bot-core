@@ -365,7 +365,7 @@ export class VMSandboxTurn implements Executor {
 		const contentMount = (path: string) => workspaceMount({ mountDir: path, writable: this.writableWorkspaceContent });
 		this.vm = new VM({
 			...vmResources(),
-			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks: secretHooks?.httpHooks, allowWebSockets: false },
+			sandbox: { vmm: this.backend, imagePath, netEnabled: true, ...(secretHooks ? { httpHooks: secretHooks.httpHooks } : {}), allowWebSockets: false },
 			env: secretHooks?.env,
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 			vfs: {
