@@ -80,7 +80,7 @@ class WorkspaceContentProvider extends RealFSProvider {
 	};
 }
 
-function workspaceMount(mountDir: string, writable: boolean) {
+function workspaceMount({ mountDir, writable }: { mountDir: string; writable: boolean }) {
 	const content = new WorkspaceContentProvider(mountDir);
 	return new SandboxVfsProvider(writable ? content : new ReadonlyProvider(content), {
 		before: ({ op, path, oldPath, newPath }) => {
@@ -362,7 +362,7 @@ export class VMSandboxTurn implements Executor {
 		this.lifetime.signal.throwIfAborted();
 		const sharedSkills = join(paths.workspace, "skills");
 		const secretHooks = createSandboxWebSecretHooks(this.secrets);
-		const contentMount = (path: string) => workspaceMount(path, this.writableWorkspaceContent);
+		const contentMount = (path: string) => workspaceMount({ mountDir: path, writable: this.writableWorkspaceContent });
 		this.vm = new VM({
 			...vmResources(),
 			sandbox: { vmm: this.backend, imagePath, netEnabled: true, httpHooks: secretHooks?.httpHooks, allowWebSockets: false },
@@ -370,13 +370,13 @@ export class VMSandboxTurn implements Executor {
 			startTimeoutMs: VM_START_TIMEOUT_MS,
 			vfs: {
 				mounts: {
-					[cwd]: new ShadowProvider(workspaceMount(paths.chatDir, true), {
+					[cwd]: new ShadowProvider(workspaceMount({ mountDir: paths.chatDir, writable: true }), {
 						// MEMORY.md is the only projected file; preserve its identity for host reads.
 						shouldShadow: ({ path, op }) => path === "/"
 							? !["stat", "lstat", "realpath", "readdir", "access"].includes(op)
 							: path !== "/MEMORY.md" || !["open", "stat", "lstat", "realpath", "readdir", "access"].includes(op),
 					}),
-					[`${cwd}/scratch`]: workspaceMount(paths.scratchDir, true),
+					[`${cwd}/scratch`]: workspaceMount({ mountDir: paths.scratchDir, writable: true }),
 					[`${cwd}/attachments`]: contentMount(paths.attachmentsDir),
 					[`${cwd}/skills`]: contentMount(paths.skillsDir),
 					[`${WORKSPACE_GUEST_ROOT}/skills`]: contentMount(sharedSkills),
