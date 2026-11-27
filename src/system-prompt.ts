@@ -93,8 +93,7 @@ export interface BaseSystemPromptInput {
 /**
  * Build the system prompt body shared across pi-mono based chat bots (Discord, Telegram, ...).
  *
- * Ported from pi-mono/packages/mom/src/agent.ts#buildSystemPrompt and consolidated from the
- * per-platform copies that previously lived in pi-discord-bot and pi-telegram-bot. Per-turn
+ * Ported from pi-mono/packages/mom/src/agent.ts#buildSystemPrompt. Per-turn
  * state goes in `liveStateLines` only; everything before it stays prefix-stable so OpenAI
  * auto-caching hits across turns and across speakers in the same conversation.
  */

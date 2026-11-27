@@ -1,6 +1,6 @@
 # pi-bot-core
 
-Shared runtime and building blocks for Pi SDK bots such as `pi-discord-bot` and `pi-telegram-bot`.
+Shared runtime and building blocks for Pi SDK bots.
 
 Workspace tools run in a per-turn Linux VM through Gondolin and the `Executor` interface. Consumers import `src/*.ts` directly through the `exports` map in `package.json` using Bun or TypeScript bundler mode, with no build step.
 
