@@ -2,6 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { obj, str } from "@earendil-works/pi-schema";
 import * as Diff from "diff";
 import type { Executor } from "../sandbox.js";
+import { shellEscape } from "./shell-escape.js";
 
 /**
  * Generate a unified diff string with line numbers and context.
@@ -156,8 +157,4 @@ export function createEditTool(executor: Executor): AgentTool<typeof editSchema>
 			};
 		},
 	};
-}
-
-function shellEscape(s: string): string {
-	return `'${s.replace(/'/g, "'\\''")}'`;
 }
