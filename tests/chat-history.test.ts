@@ -20,8 +20,6 @@ afterEach(() => {
 
 function row(partial: Partial<LoggedMessage> & Pick<LoggedMessage, "date" | "ts" | "user" | "text">): LoggedMessage {
 	return {
-		userName: undefined,
-		displayName: undefined,
 		attachments: [],
 		isBot: false,
 		...partial,

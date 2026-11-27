@@ -62,7 +62,7 @@ export function isolateEnvironment(prefix: string): IsolatedEnvironment {
 
 export interface Notification {
 	message: string;
-	type?: "info" | "warning" | "error";
+	type?: "info" | "warning" | "error" | undefined;
 }
 
 export interface BotSession {
@@ -172,12 +172,13 @@ export async function runTool(
 	};
 	session.agent.state.messages.push(message);
 	const tools = session.agent.state.tools;
+	const { beforeToolCall, afterToolCall } = session.agent;
 	return runToolCall(toolCall, {
 		tools,
 		assistantMessage: message,
 		context: { messages: session.agent.state.messages, tools },
-		beforeToolCall: session.agent.beforeToolCall,
-		afterToolCall: session.agent.afterToolCall,
+		...(beforeToolCall ? { beforeToolCall } : {}),
+		...(afterToolCall ? { afterToolCall } : {}),
 	});
 }
 
