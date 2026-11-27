@@ -305,8 +305,13 @@ describe("EventsWatcher lifecycle ownership", () => {
 		oldDone.resolve();
 		await dispatchWork.mock.results[0]!.value;
 
+		// Deliver the file deterministically: macOS FSEvents can miss a write made before its stream
+		// registers. Close the native watcher first so it cannot deliver the same file a second time.
+		(Reflect.get(watcher, "watcher") as FSWatcher).close();
 		const overflowPath = writeEvent("overflow.json");
-		await waitFor(() => !existsSync(overflowPath));
+		const work = watcher as unknown as WatcherWork;
+		await work.handleFile("overflow.json", Reflect.get(watcher, "generation") as number);
+		expect(existsSync(overflowPath)).toBe(false);
 		expect(dispatched).toHaveLength(6);
 		expect(readFileSync(join(eventsDir, "dispatch.log"), "utf-8").trim().split("\n")).toHaveLength(
 			6,
