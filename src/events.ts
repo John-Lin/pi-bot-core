@@ -61,17 +61,27 @@ export type EventDispatcher<TEvent extends ScheduledEventCommon> = (
 ) => Promise<void>;
 
 export interface EventsLogger {
+	/** Must not throw. See {@link EventsPolicy}. */
 	info(msg: string): void;
+	/** Must not throw. See {@link EventsPolicy}. */
 	warn(msg: string, detail?: string): void;
 }
 
+/**
+ * Caller-supplied event callbacks. The watcher catches dispatcher failures,
+ * but not failures from `queueKey` or the logger. A thrown error becomes an
+ * unhandled rejection, which ends a Bun process by default.
+ */
 export interface EventsPolicy<TEvent extends ScheduledEventCommon> {
-	/** Validate JSON contents, return a typed event or throw. */
+	/**
+	 * Validate JSON contents and return a typed event. Throw an `Error` for
+	 * invalid contents. The watcher retries, then logs and deletes the file.
+	 */
 	parse: (content: string, filename: string) => TEvent;
 	/**
 	 * Returns the queue-depth bucket key for this event. Used to cap concurrent
 	 * fan-out per chat/channel so a runaway cron doesn't drown one chat in
-	 * messages.
+	 * messages. Must not throw.
 	 */
 	queueKey: (event: TEvent) => string | number;
 	/** Optional logger. Defaults to stdout for info and stderr for warnings. */
