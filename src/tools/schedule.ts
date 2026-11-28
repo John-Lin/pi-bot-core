@@ -65,10 +65,10 @@ function composeSchedule(args: ScheduleFields & { routing: Record<string, unknow
 	if (!SLUG_RE.test(slug)) {
 		throw new Error(`schedule_event: 'name' must match /^[a-z0-9-]{1,40}$/, got: ${slug}`);
 	}
-	const { type, ...schedule } = timing;
 	return {
 		filename: `${slug}-${now}.json`,
-		json: { type, ...args.routing, text: args.text, ...schedule },
+		// Validated type, text, and timing fields win over routing.
+		json: { ...args.routing, ...timing, text: args.text },
 		timing,
 	};
 }

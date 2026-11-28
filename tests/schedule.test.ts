@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { buildEventPayload } from "../src/tools/schedule.js";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { lit, obj, str } from "@earendil-works/pi-schema";
+import { buildEventPayload, createScheduleTool } from "../src/tools/schedule.js";
 
 const NOW = Date.parse("2026-04-26T00:00:00+08:00");
 const FUTURE = "2026-12-14T09:00:00+08:00";
@@ -29,6 +33,31 @@ describe("buildEventPayload", () => {
 		}, NOW);
 		expect(filename).toBe(`one-shot-${NOW}.json`);
 		expect(json).toEqual({ type: "one-shot", chatId: 1, text: "hi", at: FUTURE, timezone: "UTC" });
+	});
+
+	test("keeps the validated type over a conflicting routing type", () => {
+		const { json } = buildEventPayload({
+			label: "x", type: "immediate", text: "hi",
+			routing: { chatId: 1, type: "periodic", schedule: "* * * * *", timezone: "UTC" },
+		}, NOW);
+		expect(json).toEqual({ type: "immediate", chatId: 1, text: "hi", schedule: "* * * * *", timezone: "UTC" });
+	});
+
+	test("schedule_event writes the type it reports when routing carries a conflicting type", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "pi-bot-event-routing-type-"));
+		try {
+			const tool = createScheduleTool({
+				workspace,
+				parameters: obj({ type: lit("immediate"), text: str() }),
+				description: "Schedule an immediate event",
+				buildRouting: () => ({ chatId: 1, type: "periodic", schedule: "* * * * *", timezone: "UTC" }),
+			});
+			const result = await tool.execute("schedule", { type: "immediate", text: "hi" });
+			expect(result.details.type).toBe("immediate");
+			expect(JSON.parse(readFileSync(result.details.path, "utf8")).type).toBe(result.details.type);
+		} finally {
+			rmSync(workspace, { recursive: true, force: true });
+		}
 	});
 
 	test("immediate: rejects 'at'", () => {
