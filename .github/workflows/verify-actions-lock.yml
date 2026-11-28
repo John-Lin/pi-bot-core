@@ -1,9 +1,14 @@
 name: Verify actions lockfile
 
+# Only workflow changes can desync actions.lock, so other changes skip the check.
 on:
   push:
     branches: [main]
+    paths:
+      - ".github/workflows/**"
   pull_request:
+    paths:
+      - ".github/workflows/**"
 
 permissions:
   contents: read
