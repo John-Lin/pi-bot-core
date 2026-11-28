@@ -1,19 +1,24 @@
 name: Verify actions lockfile
 
+# Only workflow changes can desync actions.lock, so other changes skip the check.
 on:
   push:
     branches: [main]
+    paths:
+      - ".github/workflows/**"
   pull_request:
+    paths:
+      - ".github/workflows/**"
 
 permissions:
   contents: read
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Checkout
-        uses: actions/checkout@v5.1.0
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
