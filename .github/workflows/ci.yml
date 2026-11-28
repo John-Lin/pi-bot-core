@@ -10,12 +10,17 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2.2.0
@@ -42,6 +47,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2.2.0
@@ -76,4 +83,5 @@ jobs:
       - name: Test
         env:
           PI_BOT_TEST_VM_SANDBOX: "1"
-        run: bun test --shard=${{ matrix.shard }}/${{ strategy.job-total }} tests/vm-*.test.ts
+          VM_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: bun test --shard="$VM_TEST_SHARD" tests/vm-*.test.ts
