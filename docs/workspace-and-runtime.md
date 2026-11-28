@@ -71,6 +71,11 @@ Event types and timing rules:
 - **Read retries and delivery.** Mid-write reads retry up to 3 times with exponential backoff (starting at 100 ms) before deleting an unparseable file. Delivered events pass a `FiredEvent` whose `text` is prefixed with `[EVENT:<filename>:<type>:<scheduleInfo>] <original text>`.
 - **Queue depth.** At most 5 in-flight dispatcher calls are allowed per `policy.queueKey(event)`. Additional events for a full bucket are discarded (and immediate or one-shot files are deleted). Dispatcher failures are logged with no retry.
 
+Policy callback rules:
+
+- **`parse`.** Throw an `Error` for invalid contents. The watcher retries, then logs a warning and deletes the file.
+- **`queueKey` and `log`.** Must not throw. The watcher does not catch their errors, so a thrown error becomes an unhandled rejection. By default, Bun ends the process on an unhandled rejection.
+
 Lifecycle rules:
 
 - Calling `start()` while already active is a no-op.
