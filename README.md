@@ -75,7 +75,7 @@ Install [prek](https://github.com/j178/prek) (for example, run `brew install pre
 prek install
 ```
 
-On every commit, `prek` runs `bun --no-env-file run typecheck`, runs `bun --no-env-file run lint` when TypeScript files under `src/` are staged, checks staged workflow files with `actionlint`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. The first `actionlint` run builds it from source; prek uses an installed Go toolchain or downloads one. Run `prek run --all-files` to check the entire repository manually. CI runs the same hooks on all files.
+On every commit, `prek` runs `bun --no-env-file run typecheck`, runs `bun --no-env-file run lint` when TypeScript files under `src/` are staged, checks staged workflow files with `actionlint`, audits staged GitHub Actions YAML with `zizmor`, and checks staged files for merge conflict markers and private keys. The hooks do not rewrite files. The first `actionlint` run builds it from source; prek uses an installed Go toolchain or downloads one. prek installs the pinned `zizmor` hook, which audits offline without a GitHub token. Run `prek run --all-files` to check the entire repository manually. CI runs the same hooks on all files.
 
 ### Workflow dependencies
 
